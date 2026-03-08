@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tg-cli"
+name = "kabi-tg-cli"
 version = "0.3.0"
-description = "Telegram CLI — monitor chats, search messages, AI analysis"
+description = "Telegram CLI — monitor chats, search messages, filter keywords"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"

@@ -17,8 +17,8 @@ tags:
 
 ```bash
 # Install (requires Python 3.10+)
-uv tool install tg-cli
-# Or: pip install tg-cli
+uv tool install kabi-tg-cli
+# Or: pip install kabi-tg-cli
 ```
 
 ## Authentication

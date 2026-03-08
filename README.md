@@ -7,9 +7,9 @@ Uses your own Telegram account (MTProto), not a Bot. Built-in API credentials â€
 
 ```bash
 # Install
-pip install tg-cli
+pip install kabi-tg-cli
 # or
-uv tool install tg-cli
+uv tool install kabi-tg-cli
 
 # Login (first run) â€” enter phone + verification code
 tg chats
@@ -75,7 +75,7 @@ tg send "GroupName" "Hello!"
 ## Setup
 
 ```bash
-pip install tg-cli  # or: uv tool install tg-cli
+pip install kabi-tg-cli  # or: uv tool install kabi-tg-cli
 tg chats         # login with phone number
 ```
 
