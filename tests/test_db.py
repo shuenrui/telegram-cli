@@ -3,8 +3,6 @@
 from datetime import datetime, timezone
 
 import pytest
-import sys, os
-sys.path.insert(0, os.path.dirname(__file__))
 from conftest import make_msg
 
 

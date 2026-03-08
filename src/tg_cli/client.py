@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import AsyncGenerator, Callable
@@ -11,9 +12,10 @@ from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat, User
 
 from .config import get_api_hash, get_api_id, get_session_path
+from .console import console
 from .db import MessageDB
 
-console = Console()
+log = logging.getLogger(__name__)
 
 
 def _get_sender_name(sender: User | Channel | Chat | None) -> str | None:
@@ -71,7 +73,8 @@ async def get_chat_info(client: TelegramClient, chat: str | int) -> dict | None:
     """Get detailed information about a chat."""
     try:
         entity = await client.get_entity(chat)
-    except Exception:
+    except Exception as e:
+        log.debug("get_chat_info failed for %s: %s", chat, e)
         return None
 
     info: dict[str, str] = {}
@@ -95,8 +98,9 @@ async def get_chat_info(client: TelegramClient, chat: str | int) -> dict | None:
             info["Members"] = str(full.full_chat.participants_count or "?")
             if full.full_chat.about:
                 info["Description"] = full.full_chat.about[:200]
-        except Exception:
+        except Exception as e:
             info["Members"] = "?"
+            log.debug("Failed to get full channel info: %s", e)
 
     return info
 
@@ -133,8 +137,8 @@ async def fetch_history(
         try:
             async for user in client.iter_participants(entity):
                 sender_cache[user.id] = _get_sender_name(user) or str(user.id)
-        except Exception:
-            pass
+        except Exception as e:
+            log.debug("Failed to pre-fetch participants: %s", e)
 
         batch: list[dict] = []
         count = 0
@@ -203,8 +207,8 @@ async def sync_all(
             # Store by bare ID
             entity = dialog.entity
             dialog_cache[entity.id] = entity
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("Failed to build dialog cache: %s", e)
 
     for chat_info in chats:
         chat_id = chat_info["chat_id"]

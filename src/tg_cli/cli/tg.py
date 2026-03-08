@@ -3,14 +3,20 @@
 import asyncio
 
 import click
-from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ..client import connect, fetch_history, get_chat_info, list_chats, listen, sync_all
+from ..console import console
 from ..db import MessageDB
 
-console = Console()
+
+def _parse_chat(chat: str) -> str | int:
+    """Parse a chat argument: return int if numeric, else the original string."""
+    try:
+        return int(chat)
+    except ValueError:
+        return chat
 
 
 @click.group("tg")
@@ -49,8 +55,7 @@ def tg_history(chat: str, limit: int):
     """Fetch historical messages from CHAT (name, username, or numeric ID)."""
 
     async def _run():
-        db = MessageDB()
-        try:
+        with MessageDB() as db:
             async with connect() as client:
                 with Progress(
                     SpinnerColumn(),
@@ -62,19 +67,10 @@ def tg_history(chat: str, limit: int):
                     def on_progress(count: int):
                         progress.update(task, description=f"Fetched {count} messages...")
 
-                    # Parse chat argument
-                    chat_arg: str | int = chat
-                    try:
-                        chat_arg = int(chat)
-                    except ValueError:
-                        pass
-
                     count = await fetch_history(
-                        client, chat_arg, limit=limit, db=db, on_progress=on_progress
+                        client, _parse_chat(chat), limit=limit, db=db, on_progress=on_progress
                     )
                 return count
-        finally:
-            db.close()
 
     count = asyncio.run(_run())
     console.print(f"\n[green]✓[/green] Stored {count} messages from {chat}")
@@ -85,16 +81,15 @@ def tg_history(chat: str, limit: int):
 @click.option("-n", "--limit", default=5000, help="Max messages per sync")
 def tg_sync(chat: str, limit: int):
     """Incremental sync — fetch only new messages from CHAT."""
-    db = MessageDB()
-
-    # Resolve chat_id to get last_msg_id
-    chat_id = db.resolve_chat_id(chat)
-    last_id = db.get_last_msg_id(chat_id) if chat_id else 0
-    if last_id:
-        console.print(f"Syncing from msg_id > {last_id}...")
 
     async def _run():
-        try:
+        with MessageDB() as db:
+            # Resolve chat_id to get last_msg_id
+            chat_id = db.resolve_chat_id(chat)
+            last_id = db.get_last_msg_id(chat_id) if chat_id else 0
+            if last_id:
+                console.print(f"Syncing from msg_id > {last_id}...")
+
             async with connect() as client:
                 with Progress(
                     SpinnerColumn(),
@@ -106,23 +101,15 @@ def tg_sync(chat: str, limit: int):
                     def on_progress(count: int):
                         progress.update(task_id, description=f"Fetched {count} new messages...")
 
-                    chat_arg: str | int = chat
-                    try:
-                        chat_arg = int(chat)
-                    except ValueError:
-                        pass
-
                     count = await fetch_history(
                         client,
-                        chat_arg,
+                        _parse_chat(chat),
                         limit=limit,
                         db=db,
                         on_progress=on_progress,
                         min_id=last_id or 0,
                     )
                 return count
-        finally:
-            db.close()
 
     count = asyncio.run(_run())
     console.print(f"\n[green]✓[/green] Synced {count} new messages from {chat}")
@@ -132,16 +119,16 @@ def tg_sync(chat: str, limit: int):
 @click.option("-n", "--limit", default=5000, help="Max messages per chat")
 def tg_sync_all(limit: int):
     """Sync ALL chats in the database with a single connection."""
-    db = MessageDB()
-    chats = db.get_chats()
-    if not chats:
-        console.print("[yellow]No chats in database. Run 'tg history' first.[/yellow]")
-        return
-
-    console.print(f"Syncing {len(chats)} chats...")
 
     async def _run():
-        try:
+        with MessageDB() as db:
+            chats = db.get_chats()
+            if not chats:
+                console.print("[yellow]No chats in database. Run 'tg history' first.[/yellow]")
+                return {}
+
+            console.print(f"Syncing {len(chats)} chats...")
+
             async with connect() as client:
                 def on_chat_done(name: str, new_count: int, total: int):
                     if new_count > 0:
@@ -152,8 +139,6 @@ def tg_sync_all(limit: int):
                 return await sync_all(
                     client, db, limit_per_chat=limit, on_chat_done=on_chat_done
                 )
-        finally:
-            db.close()
 
     results = asyncio.run(_run())
     total_new = sum(results.values())
@@ -187,12 +172,7 @@ def tg_info(chat: str):
 
     async def _run():
         async with connect() as client:
-            chat_arg: str | int = chat
-            try:
-                chat_arg = int(chat)
-            except ValueError:
-                pass
-            return await get_chat_info(client, chat_arg)
+            return await get_chat_info(client, _parse_chat(chat))
 
     info = asyncio.run(_run())
     if not info:
@@ -256,12 +236,7 @@ def tg_send(chat: str, message: str):
 
     async def _run():
         async with connect() as client:
-            chat_arg: str | int = chat
-            try:
-                chat_arg = int(chat)
-            except ValueError:
-                pass
-            msg = await client.send_message(chat_arg, message)
+            msg = await client.send_message(_parse_chat(chat), message)
             return msg
 
     msg = asyncio.run(_run())

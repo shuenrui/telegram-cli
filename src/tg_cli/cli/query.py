@@ -3,12 +3,10 @@
 from collections import defaultdict
 
 import click
-from rich.console import Console
 from rich.table import Table
 
+from ..console import console
 from ..db import MessageDB
-
-console = Console()
 
 
 @click.group("query", invoke_without_command=True)
@@ -26,10 +24,9 @@ def search(keyword: str, chat: str | None, limit: int, as_json: bool):
     """Search messages by KEYWORD."""
     import json
 
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat) if chat else None
-    results = db.search(keyword, chat_id=chat_id, limit=limit)
-    db.close()
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat) if chat else None
+        results = db.search(keyword, chat_id=chat_id, limit=limit)
 
     if not results:
         console.print("[yellow]No messages found.[/yellow]")
@@ -55,10 +52,9 @@ def search(keyword: str, chat: str | None, limit: int, as_json: bool):
 @query_group.command("stats")
 def stats():
     """Show message statistics per chat."""
-    db = MessageDB()
-    chats = db.get_chats()
-    total = db.count()
-    db.close()
+    with MessageDB() as db:
+        chats = db.get_chats()
+        total = db.count()
 
     table = Table(title=f"Message Stats (Total: {total})")
     table.add_column("Chat ID", style="dim")
@@ -85,10 +81,9 @@ def stats():
 @click.option("-n", "--limit", default=20, help="Top N senders")
 def top(chat: str | None, hours: int | None, limit: int):
     """Show most active senders."""
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat) if chat else None
-    results = db.top_senders(chat_id=chat_id, hours=hours, limit=limit)
-    db.close()
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat) if chat else None
+        results = db.top_senders(chat_id=chat_id, hours=hours, limit=limit)
 
     if not results:
         console.print("[yellow]No sender data found.[/yellow]")
@@ -119,10 +114,9 @@ def top(chat: str | None, hours: int | None, limit: int):
 @click.option("--by", "granularity", type=click.Choice(["day", "hour"]), default="day")
 def timeline(chat: str | None, hours: int | None, granularity: str):
     """Show message activity over time as a bar chart."""
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat) if chat else None
-    results = db.timeline(chat_id=chat_id, hours=hours, granularity=granularity)
-    db.close()
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat) if chat else None
+        results = db.timeline(chat_id=chat_id, hours=hours, granularity=granularity)
 
     if not results:
         console.print("[yellow]No timeline data.[/yellow]")
@@ -146,10 +140,9 @@ def today(chat: str | None, as_json: bool):
     """Show today's messages, grouped by chat."""
     import json
 
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat) if chat else None
-    msgs = db.get_today(chat_id=chat_id)
-    db.close()
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat) if chat else None
+        msgs = db.get_today(chat_id=chat_id)
 
     if not msgs:
         console.print("[yellow]No messages today.[/yellow]")
@@ -196,14 +189,13 @@ def filter_msgs(keywords: str, chat: str | None, hours: int | None, as_json: boo
         console.print("[red]Please provide at least one keyword.[/red]")
         return
 
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat) if chat else None
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat) if chat else None
 
-    if hours:
-        msgs = db.get_recent(chat_id=chat_id, hours=hours, limit=100000)
-    else:
-        msgs = db.get_today(chat_id=chat_id)
-    db.close()
+        if hours:
+            msgs = db.get_recent(chat_id=chat_id, hours=hours, limit=100000)
+        else:
+            msgs = db.get_today(chat_id=chat_id)
 
     # Filter messages containing ANY of the keywords (case-insensitive)
     pattern = re.compile("|".join(re.escape(k) for k in keyword_list), re.IGNORECASE)
@@ -237,8 +229,10 @@ def filter_msgs(keywords: str, chat: str | None, hours: int | None, as_json: boo
                     flags=re.IGNORECASE,
                 )
             console.print(
-                f"  [dim]{ts}[/dim] [bold]{sender[:15]}[/bold]: {content}"
+                f"  [dim]{ts}[/dim] [bold]{sender[:15]}[/bold]: ",
+                end="",
             )
+            console.print(content, markup=True, highlight=False)
 
     console.print(
         f"\n[green]Found {len(matched)} messages matching "

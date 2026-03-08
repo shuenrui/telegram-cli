@@ -3,11 +3,9 @@
 import json
 
 import click
-from rich.console import Console
 
+from ..console import console
 from ..db import MessageDB
-
-console = Console()
 
 
 @click.group("data", invoke_without_command=True)
@@ -23,19 +21,17 @@ def data_group():
 @click.option("--hours", type=int, help="Only export last N hours")
 def export(chat: str, fmt: str, output_file: str | None, hours: int | None):
     """Export messages from CHAT to text or JSON."""
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat)
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat)
 
-    if chat_id is None:
-        console.print(f"[red]Chat '{chat}' not found in database.[/red]")
-        db.close()
-        return
+        if chat_id is None:
+            console.print(f"[red]Chat '{chat}' not found in database.[/red]")
+            return
 
-    if hours:
-        msgs = db.get_recent(chat_id=chat_id, hours=hours, limit=100000)
-    else:
-        msgs = db.get_recent(chat_id=chat_id, hours=None, limit=100000)
-    db.close()
+        if hours:
+            msgs = db.get_recent(chat_id=chat_id, hours=hours, limit=100000)
+        else:
+            msgs = db.get_recent(chat_id=chat_id, hours=None, limit=100000)
 
     if not msgs:
         console.print(f"[yellow]No messages found for '{chat}'.[/yellow]")
@@ -65,20 +61,17 @@ def export(chat: str, fmt: str, output_file: str | None, hours: int | None):
 @click.option("-y", "--yes", is_flag=True, help="Skip confirmation")
 def purge(chat: str, yes: bool):
     """Delete all stored messages for CHAT."""
-    db = MessageDB()
-    chat_id = db.resolve_chat_id(chat)
+    with MessageDB() as db:
+        chat_id = db.resolve_chat_id(chat)
 
-    if chat_id is None:
-        console.print(f"[red]Chat '{chat}' not found in database.[/red]")
-        db.close()
-        return
-
-    if not yes:
-        count = db.count(chat_id)
-        if not click.confirm(f"Delete {count} messages from chat {chat_id}?"):
-            db.close()
+        if chat_id is None:
+            console.print(f"[red]Chat '{chat}' not found in database.[/red]")
             return
 
-    deleted = db.delete_chat(chat_id)
-    db.close()
+        if not yes:
+            count = db.count(chat_id)
+            if not click.confirm(f"Delete {count} messages from chat {chat_id}?"):
+                return
+
+        deleted = db.delete_chat(chat_id)
     console.print(f"[green]✓[/green] Deleted {deleted} messages")

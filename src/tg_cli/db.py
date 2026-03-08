@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from .config import get_db_path
 
@@ -34,11 +37,17 @@ CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_name);
 
 
 def _canonical_chat_id(chat_id: int) -> int:
-    """Normalize Telegram chat IDs to the bare numeric ID stored in SQLite."""
-    digits = str(abs(chat_id))
-    if digits.startswith("100") and len(digits) > 3:
-        return int(digits[3:])
-    return abs(chat_id)
+    """Normalize Telegram chat IDs to the bare numeric ID stored in SQLite.
+
+    Only strips the -100 prefix from negative IDs (Telegram's convention for
+    channels/supergroups).  Positive IDs starting with 100 are left as-is.
+    """
+    if chat_id < 0:
+        digits = str(abs(chat_id))
+        if digits.startswith("100") and len(digits) > 3:
+            return int(digits[3:])
+        return abs(chat_id)
+    return chat_id
 
 
 class MessageDB:
@@ -77,7 +86,7 @@ class MessageDB:
             all_ids = {c["chat_id"] for c in chats}
             if numeric_id in all_ids:
                 return numeric_id
-            return numeric_id
+            return None
         except ValueError:
             return None
 
@@ -114,7 +123,8 @@ class MessageDB:
             )
             self.conn.commit()
             return cursor.rowcount > 0
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            log.debug("insert_message failed: %s", e)
             return False
 
     def insert_batch(self, messages: list[dict], platform: str = "telegram") -> int:
@@ -148,7 +158,8 @@ class MessageDB:
             )
             self.conn.commit()
             return self.conn.total_changes - before
-        except sqlite3.Error:
+        except sqlite3.Error as e:
+            log.warning("insert_batch failed: %s", e)
             return 0
 
     def search(
@@ -193,17 +204,22 @@ class MessageDB:
     def get_today(
         self,
         chat_id: int | None = None,
-        tz_offset_hours: int = 8,
+        tz_offset_hours: int | None = None,
         limit: int = 5000,
     ) -> list[dict]:
         """Get today's messages (in local timezone).
 
         Args:
-            tz_offset_hours: Local timezone offset from UTC (default: +8 for CST)
+            tz_offset_hours: Local timezone offset from UTC.
+                             If None, auto-detect from system timezone.
         """
         # Today 00:00 in local time → UTC
         now_utc = datetime.now(timezone.utc)
-        local_tz = timezone(timedelta(hours=tz_offset_hours))
+        if tz_offset_hours is not None:
+            local_tz = timezone(timedelta(hours=tz_offset_hours))
+        else:
+            # Auto-detect system timezone
+            local_tz = datetime.now().astimezone().tzinfo
         today_local = now_utc.astimezone(local_tz).replace(hour=0, minute=0, second=0, microsecond=0)
         cutoff_utc = today_local.astimezone(timezone.utc).isoformat()
 
