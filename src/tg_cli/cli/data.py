@@ -5,7 +5,7 @@ import click
 from ..console import console
 from ..db import MessageDB
 from ._chat import resolve_chat_id_or_print
-from ._output import dump_structured
+from ._output import default_structured_format, dump_structured, error_payload
 
 
 @click.group("data", invoke_without_command=True)
@@ -32,6 +32,15 @@ def export(chat: str, fmt: str, output_file: str | None, hours: int | None):
             msgs = db.get_recent(chat_id=chat_id, hours=None, limit=100000)
 
     if not msgs:
+        structured_fmt = (
+            fmt
+            if fmt in {"json", "yaml"}
+            else default_structured_format(as_json=False, as_yaml=False)
+        )
+        if structured_fmt in {"json", "yaml"} and output_file is None:
+            payload = error_payload("no_messages", f"No messages found for '{chat}'.")
+            click.echo(dump_structured(payload, fmt=structured_fmt))
+            raise SystemExit(1) from None
         console.print(f"[yellow]No messages found for '{chat}'.[/yellow]")
         return
 

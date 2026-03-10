@@ -9,7 +9,7 @@ from rich.table import Table
 from ..console import console
 from ..db import MessageDB
 from ._chat import resolve_chat_id_or_print
-from ._output import emit_structured, structured_output_options
+from ._output import emit_error, emit_structured, structured_output_options
 from ._sync import sync_all_dialogs, sync_chat_dialog
 
 
@@ -85,13 +85,17 @@ def search(
                     limit=limit,
                 )
         except re.error as exc:
+            if emit_error("invalid_regex", f"Invalid regex pattern: {exc}"):
+                raise SystemExit(1) from None
             console.print(f"[red]Invalid regex pattern: {exc}[/red]")
             return
 
-    if emit_structured(results, as_json=as_json, as_yaml=as_yaml):
+    if results and emit_structured(results, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not results:
+        if emit_structured([], as_json=as_json, as_yaml=as_yaml):
+            return
         console.print("[yellow]No messages found.[/yellow]")
         return
 
@@ -155,10 +159,12 @@ def recent(
             return
         msgs = db.get_recent(chat_id=chat_id, sender=sender, hours=hours, limit=limit)
 
-    if emit_structured(msgs, as_json=as_json, as_yaml=as_yaml):
+    if msgs and emit_structured(msgs, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not msgs:
+        if emit_structured([], as_json=as_json, as_yaml=as_yaml):
+            return
         console.print("[yellow]No recent messages found.[/yellow]")
         return
 
@@ -253,10 +259,12 @@ def top(
             return
         results = db.top_senders(chat_id=chat_id, hours=hours, limit=limit)
 
-    if emit_structured(results, as_json=as_json, as_yaml=as_yaml):
+    if results and emit_structured(results, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not results:
+        if emit_structured([], as_json=as_json, as_yaml=as_yaml):
+            return
         console.print("[yellow]No sender data found.[/yellow]")
         return
 
@@ -313,10 +321,12 @@ def timeline(
             return
         results = db.timeline(chat_id=chat_id, hours=hours, granularity=granularity)
 
-    if emit_structured(results, as_json=as_json, as_yaml=as_yaml):
+    if results and emit_structured(results, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not results:
+        if emit_structured([], as_json=as_json, as_yaml=as_yaml):
+            return
         console.print("[yellow]No timeline data.[/yellow]")
         return
 
@@ -358,10 +368,12 @@ def today(chat: str | None, sync_first: bool, sync_limit: int, as_json: bool, as
         msgs = db.get_today(chat_id=chat_id)
         latest_ts = db.get_latest_timestamp(chat_id=chat_id)
 
-    if emit_structured(msgs, as_json=as_json, as_yaml=as_yaml):
+    if msgs and emit_structured(msgs, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not msgs:
+        if emit_structured([], as_json=as_json, as_yaml=as_yaml):
+            return
         console.print("[yellow]No messages today.[/yellow]")
         if latest_ts:
             latest_local = datetime.fromisoformat(latest_ts).astimezone()
@@ -422,6 +434,8 @@ def filter_msgs(
 
     keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
     if not keyword_list:
+        if emit_error("invalid_keywords", "Please provide at least one keyword."):
+            raise SystemExit(1) from None
         console.print("[red]Please provide at least one keyword.[/red]")
         return
 
@@ -442,6 +456,8 @@ def filter_msgs(
     matched = [m for m in msgs if m.get("content") and pattern.search(m["content"])]
 
     if not matched:
+        if emit_structured([], as_json=as_json, as_yaml=as_yaml):
+            return
         console.print(f"[yellow]No messages matching: {', '.join(keyword_list)}[/yellow]")
         return
 

@@ -4,6 +4,7 @@ from rich.table import Table
 
 from ..console import console
 from ..db import MessageDB
+from ._output import emit_error
 
 
 def resolve_chat_id_or_print(
@@ -20,6 +21,8 @@ def resolve_chat_id_or_print(
     if not matches:
         if allow_missing:
             return None
+        if emit_error("chat_not_found", f"Chat '{chat}' not found in database."):
+            raise SystemExit(1) from None
         console.print(f"[red]Chat '{chat}' not found in database.[/red]")
         return None
 
@@ -37,6 +40,12 @@ def resolve_chat_id_or_print(
             str(match.get("msg_count") or 0),
         )
 
+    if emit_error(
+        "chat_ambiguous",
+        f"Chat '{chat}' matches multiple local chats.",
+        details={"query": chat, "matches": matches[:10]},
+    ):
+        raise SystemExit(1) from None
     console.print(f"[red]Chat '{chat}' matches multiple local chats.[/red]")
     console.print(table)
     console.print("[yellow]Use a more specific name or the numeric chat ID.[/yellow]")

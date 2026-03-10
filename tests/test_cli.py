@@ -93,6 +93,17 @@ class TestSearch:
         assert result.exit_code == 0
         assert "Chat 'MissingGroup' not found in database." in result.output
 
+    def test_search_chat_not_found_yaml(self, runner, populated_db, monkeypatch):
+        db, db_path = populated_db
+        import tg_cli.db as db_mod
+
+        monkeypatch.setattr(db_mod, "get_db_path", lambda: db_path)
+        result = runner.invoke(cli, ["search", "Web3", "--chat", "MissingGroup", "--yaml"])
+        assert result.exit_code != 0
+        payload = yaml.safe_load(result.output)
+        assert payload["ok"] is False
+        assert payload["error"]["code"] == "chat_not_found"
+
     def test_search_regex_found(self, runner, populated_db, monkeypatch):
         db, db_path = populated_db
         import tg_cli.db as db_mod
