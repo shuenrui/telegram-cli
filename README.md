@@ -8,6 +8,7 @@ Telethon-powered Telegram CLI for local-first sync, search, export, and agent-fr
 
 ## More Projects
 
+- [xiaohongshu-cli](https://github.com/jackwener/xiaohongshu-cli) — Xiaohongshu (小红书) CLI for notes and account workflows
 - [twitter-cli](https://github.com/jackwener/twitter-cli) — Twitter/X CLI for timelines, search, and posting
 - [bilibili-cli](https://github.com/jackwener/bilibili-cli) — Bilibili CLI for videos, users, search, and feeds
 - [discord-cli](https://github.com/jackwener/discord-cli) — Discord CLI for local-first sync, search, and export
