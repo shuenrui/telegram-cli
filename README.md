@@ -6,8 +6,12 @@
 
 Telethon-powered Telegram CLI for local-first sync, search, export, and agent-friendly retrieval.
 
-It uses your own Telegram account over MTProto, not the Bot API. Messages are synced into local SQLite,
-so humans and AI agents can query the same cache quickly with `--json` or `--yaml`.
+[English](#english) | [中文](#中文)
+
+## English
+
+tg-cli uses your own Telegram account over MTProto, not the Bot API. It syncs messages into local
+SQLite so humans and AI agents can query the same cache quickly with `--json` or `--yaml`.
 
 ## Features
 
@@ -21,7 +25,7 @@ so humans and AI agents can query the same cache quickly with `--json` or `--yam
 ## Installation
 
 ```bash
-# Install from PyPI
+# Recommended: uv tool
 uv tool install kabi-tg-cli
 
 # Or: pipx / pip
@@ -46,131 +50,65 @@ uv sync --extra dev
 ## Quick Start
 
 ```bash
-
-# Configure credentials first
+# Apply for your own Telegram app credentials first:
+# https://my.telegram.org/apps
 export TG_API_ID=123456
 export TG_API_HASH=your_telegram_app_hash
-# Or create a .env file with the same variables
 
-# Login (first run) — enter phone + verification code
+# First login
 tg chats
 
-# Check who you are
+# Check the current account
 tg whoami
 
-# Refresh local cache from all current dialogs
+# Refresh the local cache
 tg refresh
 
-# See today's messages
+# Read and search
 tg today
+tg recent --hours 24 --limit 20 --yaml
+tg search "Rust" --hours 48
+tg filter "Rust,Golang,remote" --hours 48 --sync-first --yaml
 
-# Search
+# Keep a near-real-time cache
+tg listen --persist
+```
+
+## Refresh Model
+
+tg-cli is intentionally local-first:
+
+- `tg refresh` is the recommended daily entrypoint
+- `tg sync-all` is the lower-level primitive for scripts and schedulers
+- `--sync-first` refreshes before a single query
+- `tg listen --persist` reconnects automatically for a near-live cache
+
+Most query commands read from local SQLite, not directly from Telegram.
+
+## Usage
+
+```bash
+# Sync
+tg refresh
+tg sync-all --yaml
+tg sync "GroupName"
+
+# Search / browse
 tg search "Rust"
-tg search "Rust" --sender "Alice" --hours 48
 tg search "Rust|Golang" --regex --hours 72
 tg recent --hours 24 --limit 20 --yaml
-tg search "Rust" --sync-first --yaml
+tg today --sync-first
+tg top --hours 24 --sync-first
+tg timeline --by hour --sync-first
 
-# Filter by keywords (comma-separated, OR logic)
-tg filter "Rust,Golang,Java" --hours 48 --sync-first
+# Export
+tg export "GroupName" -f yaml -o messages.yaml
 
-# Keep a near-real-time local cache
-tg listen --persist
-
-# Send a message
+# Send
 tg send "GroupName" "Hello!"
 ```
 
-## Why This Exists
-
-`tg-cli` is intentionally local-first:
-
-- `tg refresh`, `tg sync`, `tg sync-all`, and `tg listen` ingest data from Telegram
-- `today`, `recent`, `search`, `filter`, `stats`, `top`, and `timeline` read from local SQLite
-
-That makes repeated analysis fast, scriptable, and suitable for AI agents. If you need fresh data right
-before a query, use `--sync-first`.
-
-## Commands
-
-### Telegram (`tg ...`)
-
-| Command | Description |
-|---------|-------------|
-| `tg chats [--type group] [--json\|--yaml]` | List joined chats |
-| `tg whoami [--json\|--yaml]` | Show current user info |
-| `tg history CHAT -n 1000` | Fetch historical messages |
-| `tg sync CHAT` | Incremental sync (only new messages) |
-| `tg sync-all [--json\|--yaml]` | Low-level sync for all current dialogs |
-| `tg refresh [--json\|--yaml]` | Recommended daily refresh entrypoint |
-| `tg listen [CHATS...] [--persist]` | Real-time listener with optional auto-reconnect |
-| `tg info CHAT [--json\|--yaml]` | Show detailed chat info |
-| `tg send CHAT "msg"` | Send a message |
-
-### Query
-
-| Command | Description |
-|---------|-------------|
-| `search KEYWORD [-c NAME] [-s SENDER] [--hours N] [--regex] [--sync-first] [--json\|--yaml]` | Search stored messages with chat/sender/time filters or regex |
-| `recent [-c NAME] [-s SENDER] [--hours N] [-n LIMIT] [--sync-first] [--json\|--yaml]` | Browse recent messages without a keyword |
-| `filter KEYWORDS [-c NAME] [--hours N] [--sync-first] [--json\|--yaml]` | Multi-keyword filter (OR logic, highlighted) |
-| `stats [--sync-first] [--json\|--yaml]` | Show message statistics |
-| `top [-c NAME] [--hours 24] [--sync-first] [--json\|--yaml]` | Most active senders |
-| `timeline [-c NAME] [--by day\|hour] [--sync-first] [--json\|--yaml]` | Message activity bar chart |
-| `today [-c NAME] [--sync-first] [--json\|--yaml]` | Show today's messages by chat |
-
-
-| Command | Description |
-|---------|-------------|
-| `export CHAT [-f text\|json\|yaml] [-o FILE] [--hours N]` | Export messages |
-| `purge CHAT [-y]` | Delete stored messages |
-
-### Global Options
-
-| Option | Description |
-|--------|-------------|
-| `-v, --verbose` | Enable debug logging |
-| `--version` | Show version |
-
-## Setup
-
-```bash
-uv tool install kabi-tg-cli  # or: pip install kabi-tg-cli
-# Set TG_API_ID and TG_API_HASH in your shell or a .env file
-tg chats
-```
-
-After that, tg-cli stores your session locally and reuses it.
-
-**Required:**
-- Set `TG_API_ID` and `TG_API_HASH` in your environment or `.env`
-
-**Optional:**
-- Custom data dir: `DATA_DIR=./data` or `DB_PATH=./data/messages.db`
-- Custom session file name: `TG_SESSION_NAME=my_session`
-
-Apply for your own Telegram app credentials at [my.telegram.org/apps](https://my.telegram.org/apps).
-
-## Refresh Modes
-
-`tg-cli` is local-first: `search`, `recent`, `today`, `filter`, `stats`, `top`, and `timeline`
-read from the local SQLite cache, not directly from Telegram.
-
-- `tg refresh` is the recommended daily command. It refreshes all current dialogs and prints a short summary.
-- `tg sync-all` is the lower-level primitive if you want explicit control in scripts.
-- `--sync-first` is available on query commands when you want fresh data before reading.
-- `tg listen --persist` keeps reconnecting automatically and is the closest thing to a live cache.
-
-Examples:
-
-```bash
-tg refresh
-tg today --sync-first --yaml
-tg top --hours 24 --sync-first
-tg listen --persist --retry-seconds 5
-```
-
-## Automation Examples
+## Scheduling
 
 If you do not want to run `tg refresh` manually, use a scheduler.
 
@@ -181,6 +119,7 @@ See [examples/tg-refresh.cron](https://github.com/jackwener/tg-cli/blob/main/exa
 ### systemd user timer
 
 See:
+
 - [tg-refresh.service](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.service)
 - [tg-refresh.timer](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.timer)
 
@@ -194,65 +133,26 @@ systemctl --user daemon-reload
 systemctl --user enable --now tg-refresh.timer
 ```
 
-## Manual Smoke Test
-
-With valid `TG_API_ID`, `TG_API_HASH`, and a working local session:
-
-```bash
-tg whoami
-tg refresh --yaml
-tg recent --hours 24 --limit 5 --yaml
-tg search "test" --hours 24 --sync-first --yaml
-tg today --sync-first
-```
-
-These commands cover auth, sync, local reads, and structured output without sending messages.
-
-## Troubleshooting
-
-- `Missing TG_API_ID / TG_API_HASH`
-  - Apply for your own app credentials at [my.telegram.org/apps](https://my.telegram.org/apps).
-- `No messages today`
-  - Run `tg refresh` first, or use `tg today --sync-first`.
-- `Chat '...' not found in database`
-  - Run `tg refresh` first, or use the numeric `chat_id` from `tg chats --yaml`.
-- Repeatedly running `sync-all`
-  - Prefer `tg refresh` for daily use, `--sync-first` for single queries, or `tg listen --persist` for a near-live cache.
-
-## Architecture
-
-```
-src/tg_cli/
-├── cli/
-│   ├── main.py      # Click CLI entry point + verbose
-│   ├── tg.py        # Telegram: chats, sync, refresh, listen, whoami, send
-│   ├── query.py     # Query: search, regex, recent, filter, stats, today, top, timeline
-├── client.py        # Telethon client (connection reuse)
-├── config.py        # Config and required user-provided credentials
-├── db.py            # SQLite message store
-```
-
 ## Use as AI Agent Skill
 
 tg-cli ships with a [`SKILL.md`](./SKILL.md) for AI agent integration.
 
-For AI agents, prefer `--yaml` when a downstream parser does not strictly require JSON.
-YAML is usually shorter than pretty-printed JSON and saves tokens while remaining structured.
+### Agent Output Recommendation
 
-Recommended agent pattern:
+If an AI agent needs machine-readable output, prefer `--yaml` first:
+
+- `--yaml` is usually more token-efficient than pretty-printed JSON
+- It is still easy to parse for agents and scripts
+- Keep `--json` for `jq`, strict JSON-only tooling, or exact downstream schemas
+
+Recommended agent workflow:
 
 ```bash
 tg refresh --yaml
+tg chats --yaml
 tg recent --hours 24 --sync-first --yaml
-tg filter "招聘,remote" --hours 24 --sync-first --yaml
+tg search "keyword" --chat "GroupName" --sync-first --yaml
 ```
-
-The recommended agent workflow is:
-
-1. `tg refresh --yaml`
-2. `tg chats --yaml`
-3. `tg recent --hours 24 --sync-first --yaml`
-4. `tg search "keyword" --chat "GroupName" --sync-first --yaml`
 
 ### Claude Code / Antigravity
 
@@ -266,6 +166,191 @@ git clone git@github.com:jackwener/tg-cli.git .agents/skills/tg-cli
 ```bash
 clawhub install tg-cli
 ```
+
+## Troubleshooting
+
+- `Missing TG_API_ID / TG_API_HASH`
+  - Apply for your own app credentials at [my.telegram.org/apps](https://my.telegram.org/apps).
+- `No messages today`
+  - Run `tg refresh` first, or use `tg today --sync-first`.
+- `Chat '...' not found in database`
+  - Run `tg refresh` first, or use the numeric `chat_id` from `tg chats --yaml`.
+- Repeatedly running `sync-all`
+  - Prefer `tg refresh` for daily use, `--sync-first` for single queries, or `tg listen --persist`.
+
+## 中文
+
+`tg-cli` 是一个基于 Telethon 的 Telegram CLI。它不是 Bot API 工具，而是使用你自己的
+Telegram 账号走 MTProto，把消息同步到本地 SQLite，方便你在终端里做搜索、筛选、导出，
+也方便 AI agent 直接把它当作本地 retrieval tool 调用。
+
+## 功能特性
+
+- 同步 Telegram dialogs 到本地 SQLite
+- 支持关键词搜索和 regex 搜索，可按 chat、sender、时间窗口过滤
+- 支持 `recent`、`today`、`top`、`timeline` 等本地分析命令
+- 支持导出为 text、JSON、YAML
+- 支持 `tg listen --persist`，维持近实时本地缓存
+- 支持 `--json` / `--yaml`，其中 AI agent 更推荐 `--yaml`
+
+## 安装
+
+```bash
+# 推荐：uv tool
+uv tool install kabi-tg-cli
+
+# 或者：pipx / pip
+pipx install kabi-tg-cli
+pip install kabi-tg-cli
+```
+
+从 GitHub 安装：
+
+```bash
+uv tool install git+https://github.com/jackwener/tg-cli.git
+```
+
+从源码安装：
+
+```bash
+git clone git@github.com:jackwener/tg-cli.git
+cd tg-cli
+uv sync --extra dev
+```
+
+## 快速开始
+
+```bash
+# 先去 https://my.telegram.org/apps 申请自己的 app credentials
+export TG_API_ID=123456
+export TG_API_HASH=your_telegram_app_hash
+
+# 首次登录
+tg chats
+
+# 检查当前账号
+tg whoami
+
+# 刷新本地缓存
+tg refresh
+
+# 浏览和搜索
+tg today
+tg recent --hours 24 --limit 20 --yaml
+tg search "Rust" --hours 48
+tg filter "招聘,remote,Web3" --hours 48 --sync-first --yaml
+
+# 保持近实时缓存
+tg listen --persist
+```
+
+## 刷新模型
+
+`tg-cli` 是 local-first 设计：
+
+- `tg refresh`
+  - 推荐的日常入口，刷新所有当前 dialogs
+- `tg sync-all`
+  - 更底层的同步原语，适合脚本和调度器
+- `--sync-first`
+  - 单次查询前先刷新，适合 `today`、`search`、`recent`
+- `tg listen --persist`
+  - 常驻监听并自动重连，适合做近实时本地缓存
+
+大多数查询命令默认读本地 SQLite，而不是每次都直接请求 Telegram。
+
+## 使用示例
+
+```bash
+# 同步
+tg refresh
+tg sync-all --yaml
+tg sync "群名"
+
+# 搜索 / 浏览
+tg search "Rust"
+tg search "Rust|Golang" --regex --hours 72
+tg recent --hours 24 --limit 20 --yaml
+tg today --sync-first
+tg top --hours 24 --sync-first
+tg timeline --by hour --sync-first
+
+# 导出
+tg export "群名" -f yaml -o messages.yaml
+
+# 发送消息
+tg send "群名" "Hello!"
+```
+
+## 定时刷新
+
+如果你不想每次手动执行 `tg refresh`，可以配合调度器。
+
+### cron
+
+参考 [examples/tg-refresh.cron](https://github.com/jackwener/tg-cli/blob/main/examples/tg-refresh.cron)。
+
+### systemd user timer
+
+参考：
+
+- [tg-refresh.service](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.service)
+- [tg-refresh.timer](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.timer)
+
+典型流程：
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp examples/systemd/tg-refresh.service ~/.config/systemd/user/
+cp examples/systemd/tg-refresh.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now tg-refresh.timer
+```
+
+## 作为 AI Agent Skill 使用
+
+`tg-cli` 自带 [`SKILL.md`](./SKILL.md)，方便 AI agent 自动学习并调用。
+
+### Agent 输出建议
+
+如果下游不是严格要求 JSON，优先使用 `--yaml`：
+
+- `--yaml` 通常比 pretty-printed JSON 更省 token
+- 对 agent 和脚本来说依然容易解析
+- 只有在 `jq` 或严格 JSON-only tooling 场景下再优先用 `--json`
+
+推荐的 agent 调用顺序：
+
+```bash
+tg refresh --yaml
+tg chats --yaml
+tg recent --hours 24 --sync-first --yaml
+tg search "keyword" --chat "GroupName" --sync-first --yaml
+```
+
+### Claude Code / Antigravity
+
+```bash
+mkdir -p .agents/skills
+git clone git@github.com:jackwener/tg-cli.git .agents/skills/tg-cli
+```
+
+### OpenClaw / ClawHub
+
+```bash
+clawhub install tg-cli
+```
+
+## 常见问题
+
+- 缺少 `TG_API_ID` / `TG_API_HASH`
+  - 去 [my.telegram.org/apps](https://my.telegram.org/apps) 申请自己的 app credentials
+- `No messages today`
+  - 先执行 `tg refresh`，或直接使用 `tg today --sync-first`
+- `Chat '...' not found in database`
+  - 先执行 `tg refresh`，或用 `tg chats --yaml` 找到准确的 `chat_id`
+- 为什么总要先同步
+  - 因为 `tg-cli` 是 local-first 设计，大多数查询命令默认读本地 SQLite，不直接查 Telegram
 
 ## License
 
