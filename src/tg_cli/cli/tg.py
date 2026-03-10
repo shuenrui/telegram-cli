@@ -1,14 +1,18 @@
-"""Telegram subcommands — chats, history, sync, sync-all, listen, info, whoami, send."""
+"""Telegram subcommands — chats, history, sync, refresh, listen, info, whoami, send."""
 
 import asyncio
+import time
 
 import click
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from ..client import connect, fetch_history, get_chat_info, list_chats, listen, sync_all
+from ..client import connect, fetch_history, get_chat_info, list_chats, listen
 from ..console import console
 from ..db import MessageDB
+from ._chat import resolve_chat_id_or_print
+from ._output import emit_structured, structured_output_options
+from ._sync import sync_all_dialogs, sync_chat_dialog
 
 
 def _parse_chat(chat: str) -> str | int:
@@ -27,7 +31,8 @@ def tg_group():
 
 @tg_group.command("chats")
 @click.option("--type", "chat_type", help="Filter by type: user, group, supergroup, channel")
-def tg_chats(chat_type: str | None):
+@structured_output_options
+def tg_chats(chat_type: str | None, as_json: bool, as_yaml: bool):
     """List joined Telegram chats."""
 
     async def _run():
@@ -35,6 +40,9 @@ def tg_chats(chat_type: str | None):
             return await list_chats(client, chat_type)
 
     chats = asyncio.run(_run())
+    if emit_structured(chats, as_json=as_json, as_yaml=as_yaml):
+        return
+
     table = Table(title="Telegram Chats")
     table.add_column("ID", style="dim")
     table.add_column("Name", style="bold")
@@ -65,7 +73,7 @@ def tg_history(chat: str, limit: int):
                     task = progress.add_task(f"Fetching messages from {chat}...", total=None)
 
                     def on_progress(count: int):
-                        progress.update(task, description=f"Fetched {count} messages...")
+                        progress.update(task, description=f"Stored {count} messages...")
 
                     count = await fetch_history(
                         client, _parse_chat(chat), limit=limit, db=db, on_progress=on_progress
@@ -85,69 +93,114 @@ def tg_sync(chat: str, limit: int):
     async def _run():
         with MessageDB() as db:
             # Resolve chat_id to get last_msg_id
-            chat_id = db.resolve_chat_id(chat)
+            chat_id = resolve_chat_id_or_print(db, chat, allow_missing=True)
+            matches = db.find_chats(chat)
+            if len(matches) > 1:
+                resolve_chat_id_or_print(db, chat)
+                return None
             last_id = db.get_last_msg_id(chat_id) if chat_id else 0
-            if last_id:
-                console.print(f"Syncing from msg_id > {last_id}...")
+        if last_id:
+            console.print(f"Syncing from msg_id > {last_id}...")
 
-            async with connect() as client:
-                with Progress(
-                    SpinnerColumn(),
-                    TextColumn("[progress.description]{task.description}"),
-                    console=console,
-                ) as progress:
-                    task_id = progress.add_task(f"Syncing {chat}...", total=None)
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task_id = progress.add_task(f"Syncing {chat}...", total=None)
 
-                    def on_progress(count: int):
-                        progress.update(task_id, description=f"Fetched {count} new messages...")
+            def on_progress(count: int):
+                progress.update(task_id, description=f"Stored {count} new messages...")
 
-                    count = await fetch_history(
-                        client,
-                        _parse_chat(chat),
-                        limit=limit,
-                        db=db,
-                        on_progress=on_progress,
-                        min_id=last_id or 0,
-                    )
-                return count
+            return await sync_chat_dialog(chat, limit=limit, on_progress=on_progress)
 
     count = asyncio.run(_run())
+    if count is None:
+        return
     console.print(f"\n[green]✓[/green] Synced {count} new messages from {chat}")
 
 
 @tg_group.command("sync-all")
 @click.option("-n", "--limit", default=5000, help="Max messages per chat")
-def tg_sync_all(limit: int):
-    """Sync ALL chats in the database with a single connection."""
+@structured_output_options
+def tg_sync_all(limit: int, as_json: bool, as_yaml: bool):
+    """Sync all currently available Telegram dialogs with a single connection."""
 
     async def _run():
-        with MessageDB() as db:
-            chats = db.get_chats()
-            if not chats:
-                console.print("[yellow]No chats in database. Run 'tg history' first.[/yellow]")
-                return {}
+        on_chat_done = None
+        if not as_json and not as_yaml:
+            console.print("Syncing all available chats...")
 
-            console.print(f"Syncing {len(chats)} chats...")
+            def _on_chat_done(name: str, new_count: int, total: int):
+                if new_count > 0:
+                    console.print(f"  [green]✓[/green] {name}: +{new_count} (total: {total})")
+                else:
+                    console.print(f"  [dim]✓ {name}: no new messages[/dim]")
 
-            async with connect() as client:
-                def on_chat_done(name: str, new_count: int, total: int):
-                    if new_count > 0:
-                        console.print(f"  [green]✓[/green] {name}: +{new_count} (total: {total})")
-                    else:
-                        console.print(f"  [dim]✓ {name}: no new messages[/dim]")
+            on_chat_done = _on_chat_done
 
-                return await sync_all(
-                    client, db, limit_per_chat=limit, on_chat_done=on_chat_done
-                )
+        return await sync_all_dialogs(limit=limit, on_chat_done=on_chat_done)
 
     results = asyncio.run(_run())
     total_new = sum(results.values())
+    payload = {"new_messages": total_new, "chats": len(results), "results": results}
+    if emit_structured(payload, as_json=as_json, as_yaml=as_yaml):
+        return
     console.print(f"\n[green]✓[/green] Synced {total_new} new messages across {len(results)} chats")
+
+
+@tg_group.command("refresh")
+@click.option("-n", "--limit", default=5000, help="Max messages per chat")
+@structured_output_options
+def tg_refresh(limit: int, as_json: bool, as_yaml: bool):
+    """Refresh the local cache from all current Telegram dialogs."""
+
+    async def _run():
+        on_chat_done = None
+        if not as_json and not as_yaml:
+            console.print("Refreshing local cache...")
+
+            def _on_chat_done(name: str, new_count: int, total: int):
+                if new_count > 0:
+                    console.print(f"  [green]✓[/green] {name}: +{new_count} (total: {total})")
+                else:
+                    console.print(f"  [dim]✓ {name}: no new messages[/dim]")
+
+            on_chat_done = _on_chat_done
+
+        return await sync_all_dialogs(limit=limit, on_chat_done=on_chat_done)
+
+    results = asyncio.run(_run())
+    total_new = sum(results.values())
+    updated = [
+        name
+        for name, count in sorted(results.items(), key=lambda item: (-item[1], item[0]))
+        if count > 0
+    ]
+    payload = {
+        "new_messages": total_new,
+        "chats": len(results),
+        "updated_chats": updated,
+        "results": results,
+    }
+    if emit_structured(payload, as_json=as_json, as_yaml=as_yaml):
+        return
+
+    console.print(f"\n[green]✓[/green] Refreshed {len(results)} chats, {total_new} new messages.")
+    if updated:
+        console.print(f"[dim]Most recently updated: {', '.join(updated[:5])}[/dim]")
 
 
 @tg_group.command("listen")
 @click.argument("chats", nargs=-1)
-def tg_listen(chats: tuple[str, ...]):
+@click.option("--persist", is_flag=True, help="Reconnect automatically if the connection drops")
+@click.option(
+    "--retry-seconds",
+    default=5,
+    show_default=True,
+    help="Reconnect delay when using --persist",
+)
+def tg_listen(chats: tuple[str, ...], persist: bool, retry_seconds: int):
     """Real-time listener for new messages. Optionally specify CHATS to filter."""
     parsed: list[str | int] | None = None
     if chats:
@@ -158,16 +211,37 @@ def tg_listen(chats: tuple[str, ...]):
             except ValueError:
                 parsed.append(c)
 
-    async def _run():
+    async def _run_once():
         async with connect() as client:
-            await listen(client, chats=parsed)
+            return await listen(client, chats=parsed)
 
-    asyncio.run(_run())
+    while True:
+        try:
+            result = asyncio.run(_run_once())
+        except click.ClickException:
+            raise
+        except Exception as exc:
+            if not persist:
+                raise
+            console.print(
+                f"[yellow]Listener disconnected: {exc}. Retrying in {retry_seconds}s...[/yellow]"
+            )
+            time.sleep(retry_seconds)
+            continue
+
+        if not persist or result == "stopped":
+            break
+
+        console.print(
+            f"[yellow]Listener disconnected. Reconnecting in {retry_seconds}s...[/yellow]"
+        )
+        time.sleep(retry_seconds)
 
 
 @tg_group.command("info")
 @click.argument("chat")
-def tg_info(chat: str):
+@structured_output_options
+def tg_info(chat: str, as_json: bool, as_yaml: bool):
     """Show detailed info about CHAT."""
 
     async def _run():
@@ -177,6 +251,9 @@ def tg_info(chat: str):
     info = asyncio.run(_run())
     if not info:
         console.print(f"[red]Could not find chat: {chat}[/red]")
+        return
+
+    if emit_structured(info, as_json=as_json, as_yaml=as_yaml):
         return
 
     table = Table(title="Chat Info", show_header=False)
@@ -190,10 +267,9 @@ def tg_info(chat: str):
 
 
 @tg_group.command("whoami")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def tg_whoami(as_json: bool):
+@structured_output_options
+def tg_whoami(as_json: bool, as_yaml: bool):
     """Show current logged-in user info."""
-    import json
 
     async def _run():
         async with connect() as client:
@@ -210,8 +286,7 @@ def tg_whoami(as_json: bool):
         "phone": me.phone or "",
     }
 
-    if as_json:
-        click.echo(json.dumps(info, ensure_ascii=False, indent=2))
+    if emit_structured(info, as_json=as_json, as_yaml=as_yaml):
         return
 
     name = " ".join(p for p in [me.first_name, me.last_name] if p)

@@ -1,10 +1,6 @@
 """Tests for MessageDB — uses temp SQLite, no Telegram dependency."""
 
-from datetime import datetime, timezone
-
-import pytest
 from conftest import make_msg
-
 
 # ─────────────────────── insert_message ───────────────────────
 
@@ -76,11 +72,39 @@ class TestSearch:
         results = db.search("Web3", chat_id=100)
         assert len(results) == 1
 
+    def test_search_with_sender_filter(self, db):
+        db.insert_message(**make_msg(msg_id=1, sender_name="Alice", content="Rust job"))
+        db.insert_message(**make_msg(msg_id=2, sender_name="Bob", content="Rust course"))
+        results = db.search("Rust", sender="Ali")
+        assert len(results) == 1
+        assert results[0]["sender_name"] == "Alice"
+
+    def test_search_with_hours_filter(self, db):
+        db.insert_message(**make_msg(msg_id=1, content="Rust today", hours_ago=1))
+        db.insert_message(**make_msg(msg_id=2, content="Rust old", hours_ago=72))
+        results = db.search("Rust", hours=24)
+        assert len(results) == 1
+        assert results[0]["content"] == "Rust today"
+
     def test_search_limit(self, db):
         for i in range(20):
             db.insert_message(**make_msg(msg_id=i, content=f"test msg {i}"))
         results = db.search("test", limit=5)
         assert len(results) == 5
+
+    def test_search_regex_found(self, db):
+        db.insert_message(**make_msg(msg_id=1, content="Rust and Go"))
+        db.insert_message(**make_msg(msg_id=2, content="Python only"))
+        results = db.search_regex(r"Rust.*Go")
+        assert len(results) == 1
+        assert results[0]["content"] == "Rust and Go"
+
+    def test_search_regex_with_sender_filter(self, db):
+        db.insert_message(**make_msg(msg_id=1, sender_name="Alice", content="Rust remote"))
+        db.insert_message(**make_msg(msg_id=2, sender_name="Bob", content="Rust remote"))
+        results = db.search_regex(r"rust\s+remote", sender="Ali")
+        assert len(results) == 1
+        assert results[0]["sender_name"] == "Alice"
 
 
 # ─────────────────────── get_recent ───────────────────────
@@ -104,6 +128,19 @@ class TestGetRecent:
         db.insert_message(**make_msg(chat_id=200, msg_id=2))
         results = db.get_recent(chat_id=100, hours=24)
         assert len(results) == 1
+
+    def test_recent_with_sender_filter(self, db):
+        db.insert_message(**make_msg(msg_id=1, sender_name="Alice"))
+        db.insert_message(**make_msg(msg_id=2, sender_name="Bob"))
+        results = db.get_recent(sender="Ali", hours=24)
+        assert len(results) == 1
+        assert results[0]["sender_name"] == "Alice"
+
+    def test_recent_limit_returns_latest_messages(self, db):
+        for i in range(5):
+            db.insert_message(**make_msg(msg_id=10 + i, content=f"msg {i}", hours_ago=5 - i))
+        results = db.get_recent(hours=24, limit=2)
+        assert [r["content"] for r in results] == ["msg 3", "msg 4"]
 
 
 # ─────────────────────── get_chats ───────────────────────
@@ -137,6 +174,21 @@ class TestGetLastMsgId:
         assert db.get_last_msg_id(999) is None
 
 
+# ─────────────────────── get_latest_timestamp ───────────────────────
+
+
+class TestGetLatestTimestamp:
+    def test_latest_timestamp(self, db):
+        db.insert_message(**make_msg(msg_id=1, hours_ago=3))
+        db.insert_message(**make_msg(msg_id=2, hours_ago=1))
+        latest = db.get_latest_timestamp()
+        assert latest is not None
+        assert latest.endswith("+00:00")
+
+    def test_latest_timestamp_empty(self, db):
+        assert db.get_latest_timestamp() is None
+
+
 # ─────────────────────── resolve_chat_id ───────────────────────
 
 
@@ -156,6 +208,17 @@ class TestResolveChatId:
     def test_resolve_unknown(self, db):
         result = db.resolve_chat_id("nonexistent")
         assert result is None
+
+    def test_resolve_ambiguous_returns_none(self, db):
+        db.insert_message(**make_msg(chat_id=100, chat_name="Dev Group"))
+        db.insert_message(**make_msg(chat_id=200, chat_name="Dev Chat", msg_id=2))
+        assert db.resolve_chat_id("Dev") is None
+
+    def test_find_chats_returns_all_partial_matches(self, db):
+        db.insert_message(**make_msg(chat_id=100, chat_name="Dev Group"))
+        db.insert_message(**make_msg(chat_id=200, chat_name="Dev Chat", msg_id=2))
+        matches = db.find_chats("Dev")
+        assert len(matches) == 2
 
 
 # ─────────────────────── delete_chat ───────────────────────
@@ -195,9 +258,9 @@ class TestContextManager:
 class TestTopSenders:
     def test_top_senders(self, db):
         for i in range(5):
-            db.insert_message(**make_msg(msg_id=i, sender_name="Alice"))
+            db.insert_message(**make_msg(msg_id=i, sender_id=101, sender_name="Alice"))
         for i in range(3):
-            db.insert_message(**make_msg(msg_id=10 + i, sender_name="Bob"))
+            db.insert_message(**make_msg(msg_id=10 + i, sender_id=202, sender_name="Bob"))
 
         results = db.top_senders()
         assert len(results) == 2
@@ -205,22 +268,28 @@ class TestTopSenders:
         assert results[0]["msg_count"] == 5
 
     def test_top_senders_with_chat_filter(self, db):
-        db.insert_message(**make_msg(chat_id=100, msg_id=1, sender_name="Alice"))
-        db.insert_message(**make_msg(chat_id=200, msg_id=2, sender_name="Bob"))
+        db.insert_message(**make_msg(chat_id=100, msg_id=1, sender_id=101, sender_name="Alice"))
+        db.insert_message(**make_msg(chat_id=200, msg_id=2, sender_id=202, sender_name="Bob"))
         results = db.top_senders(chat_id=100)
         assert len(results) == 1
 
     def test_top_senders_with_hours(self, db):
-        db.insert_message(**make_msg(msg_id=1, sender_name="Alice", hours_ago=1))
-        db.insert_message(**make_msg(msg_id=2, sender_name="Bob", hours_ago=48))
+        db.insert_message(**make_msg(msg_id=1, sender_id=101, sender_name="Alice", hours_ago=1))
+        db.insert_message(**make_msg(msg_id=2, sender_id=202, sender_name="Bob", hours_ago=48))
         results = db.top_senders(hours=24)
         assert len(results) == 1
 
     def test_top_senders_limit(self, db):
         for i in range(10):
-            db.insert_message(**make_msg(msg_id=i, sender_name=f"User{i}"))
+            db.insert_message(**make_msg(msg_id=i, sender_id=100 + i, sender_name=f"User{i}"))
         results = db.top_senders(limit=3)
         assert len(results) == 3
+
+    def test_top_senders_keeps_same_name_different_ids_separate(self, db):
+        db.insert_message(**make_msg(msg_id=1, sender_id=101, sender_name="Alex"))
+        db.insert_message(**make_msg(msg_id=2, sender_id=202, sender_name="Alex"))
+        results = db.top_senders(limit=10)
+        assert len(results) == 2
 
 
 # ─────────────────────── timeline ───────────────────────

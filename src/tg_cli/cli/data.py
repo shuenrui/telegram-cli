@@ -1,11 +1,11 @@
 """Data commands — export, purge."""
 
-import json
-
 import click
 
 from ..console import console
 from ..db import MessageDB
+from ._chat import resolve_chat_id_or_print
+from ._output import dump_structured
 
 
 @click.group("data", invoke_without_command=True)
@@ -16,16 +16,14 @@ def data_group():
 
 @data_group.command("export")
 @click.argument("chat")
-@click.option("-f", "--format", "fmt", type=click.Choice(["text", "json"]), default="text")
+@click.option("-f", "--format", "fmt", type=click.Choice(["text", "json", "yaml"]), default="text")
 @click.option("-o", "--output", "output_file", help="Output file path")
 @click.option("--hours", type=int, help="Only export last N hours")
 def export(chat: str, fmt: str, output_file: str | None, hours: int | None):
-    """Export messages from CHAT to text or JSON."""
+    """Export messages from CHAT to text, JSON, or YAML."""
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat)
-
+        chat_id = resolve_chat_id_or_print(db, chat)
         if chat_id is None:
-            console.print(f"[red]Chat '{chat}' not found in database.[/red]")
             return
 
         if hours:
@@ -37,8 +35,8 @@ def export(chat: str, fmt: str, output_file: str | None, hours: int | None):
         console.print(f"[yellow]No messages found for '{chat}'.[/yellow]")
         return
 
-    if fmt == "json":
-        content = json.dumps(msgs, ensure_ascii=False, indent=2, default=str)
+    if fmt in {"json", "yaml"}:
+        content = dump_structured(msgs, fmt=fmt)
     else:
         lines = []
         for msg in msgs:
@@ -62,10 +60,8 @@ def export(chat: str, fmt: str, output_file: str | None, hours: int | None):
 def purge(chat: str, yes: bool):
     """Delete all stored messages for CHAT."""
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat)
-
+        chat_id = resolve_chat_id_or_print(db, chat)
         if chat_id is None:
-            console.print(f"[red]Chat '{chat}' not found in database.[/red]")
             return
 
         if not yes:

@@ -22,7 +22,7 @@ def _setup_logging(verbose: bool):
 @click.version_option(package_name="kabi-tg-cli")
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging")
 def cli(verbose: bool):
-    """tg — Telegram CLI for monitoring chats, searching messages, and AI analysis."""
+    """tg — Telegram CLI for syncing chats, searching messages, and local analysis."""
     _setup_logging(verbose)
 
 

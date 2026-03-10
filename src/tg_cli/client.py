@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Callable
 
-from rich.console import Console
+import click
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat, User
 
-from .config import get_api_hash, get_api_id, get_session_path
+from .config import (
+    MissingTelegramCredentialsError,
+    get_api_hash,
+    get_api_id,
+    get_session_path,
+)
 from .console import console
 from .db import MessageDB
 
@@ -31,7 +36,13 @@ def _get_sender_name(sender: User | Channel | Chat | None) -> str | None:
 @asynccontextmanager
 async def connect() -> AsyncGenerator[TelegramClient, None]:
     """Async context manager for Telegram client — single connection, reuse within scope."""
-    c = TelegramClient(get_session_path(), get_api_id(), get_api_hash())
+    try:
+        api_id = get_api_id()
+        api_hash = get_api_hash()
+    except MissingTelegramCredentialsError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    c = TelegramClient(get_session_path(), api_id, api_hash)
     await c.start()
     try:
         yield c
@@ -78,7 +89,9 @@ async def get_chat_info(client: TelegramClient, chat: str | int) -> dict | None:
         return None
 
     info: dict[str, str] = {}
-    info["Title"] = getattr(entity, "title", None) or getattr(entity, "first_name", "") or str(chat)
+    info["Title"] = (
+        getattr(entity, "title", None) or getattr(entity, "first_name", "") or str(chat)
+    )
     info["ID"] = str(entity.id)
 
     if isinstance(entity, User):
@@ -129,7 +142,9 @@ async def fetch_history(
 
     try:
         entity = await client.get_entity(chat)
-        chat_name = getattr(entity, "title", None) or getattr(entity, "first_name", None) or str(chat)
+        chat_name = (
+            getattr(entity, "title", None) or getattr(entity, "first_name", None) or str(chat)
+        )
         chat_id = entity.id
 
         # Pre-fetch participants for sender name cache
@@ -141,7 +156,7 @@ async def fetch_history(
             log.debug("Failed to pre-fetch participants: %s", e)
 
         batch: list[dict] = []
-        count = 0
+        inserted_count = 0
         BATCH_SIZE = 200
 
         async for msg in client.iter_messages(entity, limit=limit, min_id=min_id):
@@ -165,19 +180,18 @@ async def fetch_history(
                     timestamp=ts or datetime.now(timezone.utc),
                 )
             )
-            count += 1
 
             if len(batch) >= BATCH_SIZE:
-                db.insert_batch(batch)
+                inserted_count += db.insert_batch(batch)
                 batch.clear()
                 if on_progress:
-                    on_progress(count)
+                    on_progress(inserted_count)
 
         # Flush remaining
         if batch:
-            db.insert_batch(batch)
+            inserted_count += db.insert_batch(batch)
 
-        return count
+        return inserted_count
     finally:
         if owns_db:
             db.close()
@@ -198,29 +212,18 @@ async def sync_all(
         dict mapping chat_name to new message count
     """
     results: dict[str, int] = {}
-    chats = db.get_chats()
-
-    # Build dialog cache for entity resolution
-    dialog_cache: dict[int, object] = {}
+    stored_chats = {c["chat_id"]: c for c in db.get_chats()}
+    dialog_cache: dict[int, tuple[object, str]] = {}
     try:
         async for dialog in client.iter_dialogs():
-            # Store by bare ID
             entity = dialog.entity
-            dialog_cache[entity.id] = entity
+            dialog_cache[entity.id] = (entity, dialog.name)
     except Exception as e:
         log.debug("Failed to build dialog cache: %s", e)
 
-    for chat_info in chats:
-        chat_id = chat_info["chat_id"]
-        chat_name = chat_info["chat_name"] or str(chat_id)
-
-        # Resolve entity from dialog cache
-        entity = dialog_cache.get(chat_id)
-        if entity is None:
-            console.print(f"  [yellow]⚠ Skipped {chat_name} (not in dialog list)[/yellow]")
-            results[chat_name] = 0
-            continue
-
+    for chat_id, (entity, dialog_name) in dialog_cache.items():
+        chat_info = stored_chats.get(chat_id, {})
+        chat_name = chat_info.get("chat_name") or dialog_name or str(chat_id)
         last_id = db.get_last_msg_id(chat_id) or 0
 
         try:
@@ -233,7 +236,7 @@ async def sync_all(
             )
             results[chat_name] = count
             if on_chat_done:
-                on_chat_done(chat_name, count, chat_info["msg_count"] + count)
+                on_chat_done(chat_name, count, chat_info.get("msg_count", 0) + count)
         except Exception as e:
             console.print(f"  [red]✗ {chat_name}: {e}[/red]")
             results[chat_name] = 0
@@ -254,7 +257,7 @@ async def listen(
     try:
         me = await client.get_me()
         console.print(f"[green]✓[/green] Logged in as [bold]{me.first_name}[/bold] ({me.phone})")
-        console.print(f"[dim]Listening for messages... Press Ctrl+C to stop.[/dim]")
+        console.print("[dim]Listening for messages... Press Ctrl+C to stop.[/dim]")
 
         @client.on(events.NewMessage(chats=chats))
         async def handler(event):
@@ -262,7 +265,9 @@ async def listen(
             chat = await event.get_chat()
             sender = await event.get_sender()
 
-            chat_name = getattr(chat, "title", None) or getattr(chat, "first_name", None) or "Unknown"
+            chat_name = (
+                getattr(chat, "title", None) or getattr(chat, "first_name", None) or "Unknown"
+            )
             sender_name = _get_sender_name(sender)
             content = msg.text or msg.message or ""
 
@@ -286,13 +291,16 @@ async def listen(
                 f"[bold]{sender_name or 'Unknown'}[/bold]: {content[:200]}"
             )
 
+        status = "disconnected"
         try:
             await client.run_until_disconnected()
         except KeyboardInterrupt:
+            status = "stopped"
             console.print("\n[yellow]Stopped listening.[/yellow]")
         finally:
             db_count = db.count()
             console.print(f"[green]Total messages in DB: {db_count}[/green]")
+        return status
     finally:
         if owns_db:
             db.close()

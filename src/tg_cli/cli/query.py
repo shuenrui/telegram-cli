@@ -1,5 +1,6 @@
 """Query commands — search, stats, top, timeline, today, filter."""
 
+import asyncio
 from collections import defaultdict
 
 import click
@@ -7,6 +8,9 @@ from rich.table import Table
 
 from ..console import console
 from ..db import MessageDB
+from ._chat import resolve_chat_id_or_print
+from ._output import emit_structured, structured_output_options
+from ._sync import sync_all_dialogs, sync_chat_dialog
 
 
 @click.group("query", invoke_without_command=True)
@@ -15,21 +19,76 @@ def query_group():
     pass
 
 
+def _maybe_sync_first(chat: str | None, sync_first: bool, sync_limit: int) -> None:
+    """Refresh local cache before running a query command."""
+    if not sync_first:
+        return
+
+    if chat:
+        with MessageDB() as db:
+            matches = db.find_chats(chat)
+        if len(matches) > 1:
+            return
+        asyncio.run(sync_chat_dialog(chat, limit=sync_limit))
+        return
+
+    asyncio.run(sync_all_dialogs(limit=sync_limit))
+
+
 @query_group.command("search")
 @click.argument("keyword")
 @click.option("-c", "--chat", help="Filter by chat name")
+@click.option("-s", "--sender", help="Filter by sender name")
+@click.option("--hours", type=int, help="Only search messages within N hours")
+@click.option("--regex", "use_regex", is_flag=True, help="Treat KEYWORD as a regex pattern")
+@click.option("--sync-first", is_flag=True, help="Refresh local cache before searching")
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
 @click.option("-n", "--limit", default=50, help="Max results")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def search(keyword: str, chat: str | None, limit: int, as_json: bool):
-    """Search messages by KEYWORD."""
-    import json
+@structured_output_options
+def search(
+    keyword: str,
+    chat: str | None,
+    sender: str | None,
+    hours: int | None,
+    use_regex: bool,
+    sync_first: bool,
+    sync_limit: int,
+    limit: int,
+    as_json: bool,
+    as_yaml: bool,
+):
+    """Search messages by KEYWORD with optional chat, sender, and time filters."""
+    import re
+
+    _maybe_sync_first(chat, sync_first, sync_limit)
 
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat) if chat else None
-        results = db.search(keyword, chat_id=chat_id, limit=limit)
+        chat_id = resolve_chat_id_or_print(db, chat)
+        if chat and chat_id is None:
+            return
+        try:
+            if use_regex:
+                results = db.search_regex(
+                    keyword, chat_id=chat_id, sender=sender, hours=hours, limit=limit
+                )
+            else:
+                results = db.search(
+                    keyword,
+                    chat_id=chat_id,
+                    sender=sender,
+                    hours=hours,
+                    limit=limit,
+                )
+        except re.error as exc:
+            console.print(f"[red]Invalid regex pattern: {exc}[/red]")
+            return
 
-    if as_json:
-        click.echo(json.dumps(results, ensure_ascii=False, indent=2, default=str))
+    if emit_structured(results, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not results:
@@ -46,15 +105,100 @@ def search(keyword: str, chat: str | None, limit: int, as_json: bool):
             f"[bold]{sender}[/bold]: {content}"
         )
 
-    console.print(f"\n[dim]Found {len(results)} messages[/dim]")
+    filters = []
+    if chat:
+        filters.append(f"chat={chat}")
+    if sender:
+        filters.append(f"sender={sender}")
+    if hours:
+        filters.append(f"hours={hours}")
+    if use_regex:
+        filters.append("mode=regex")
+    suffix = f" ({', '.join(filters)})" if filters else ""
+    console.print(f"\n[dim]Found {len(results)} messages{suffix}[/dim]")
+
+
+@query_group.command("recent")
+@click.option("-c", "--chat", help="Filter by chat name")
+@click.option("-s", "--sender", help="Filter by sender name")
+@click.option("--hours", type=int, default=24, show_default=True, help="Only show last N hours")
+@click.option(
+    "--sync-first",
+    is_flag=True,
+    help="Refresh local cache before reading recent messages",
+)
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
+@click.option("-n", "--limit", default=50, help="Max messages")
+@structured_output_options
+def recent(
+    chat: str | None,
+    sender: str | None,
+    hours: int,
+    sync_first: bool,
+    sync_limit: int,
+    limit: int,
+    as_json: bool,
+    as_yaml: bool,
+):
+    """Show recent messages for browsing without a keyword search."""
+
+    _maybe_sync_first(chat, sync_first, sync_limit)
+
+    with MessageDB() as db:
+        chat_id = resolve_chat_id_or_print(db, chat)
+        if chat and chat_id is None:
+            return
+        msgs = db.get_recent(chat_id=chat_id, sender=sender, hours=hours, limit=limit)
+
+    if emit_structured(msgs, as_json=as_json, as_yaml=as_yaml):
+        return
+
+    if not msgs:
+        console.print("[yellow]No recent messages found.[/yellow]")
+        return
+
+    for msg in msgs:
+        ts = (msg.get("timestamp") or "")[:19]
+        sender_name = msg.get("sender_name") or "Unknown"
+        chat_name = msg.get("chat_name") or ""
+        content = (msg.get("content") or "")[:200].replace("\n", " ")
+        console.print(
+            f"[dim]{ts}[/dim] [cyan]{chat_name}[/cyan] | "
+            f"[bold]{sender_name}[/bold]: {content}"
+        )
+
+    filters = [f"hours={hours}"]
+    if chat:
+        filters.append(f"chat={chat}")
+    if sender:
+        filters.append(f"sender={sender}")
+    console.print(f"\n[dim]Showing {len(msgs)} recent messages ({', '.join(filters)})[/dim]")
 
 
 @query_group.command("stats")
-def stats():
+@click.option("--sync-first", is_flag=True, help="Refresh local cache before calculating stats")
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
+@structured_output_options
+def stats(sync_first: bool, sync_limit: int, as_json: bool, as_yaml: bool):
     """Show message statistics per chat."""
+    _maybe_sync_first(None, sync_first, sync_limit)
+
     with MessageDB() as db:
         chats = db.get_chats()
         total = db.count()
+
+    if emit_structured({"total": total, "chats": chats}, as_json=as_json, as_yaml=as_yaml):
+        return
 
     table = Table(title=f"Message Stats (Total: {total})")
     table.add_column("Chat ID", style="dim")
@@ -78,12 +222,39 @@ def stats():
 @query_group.command("top")
 @click.option("-c", "--chat", help="Filter by chat name")
 @click.option("--hours", type=int, help="Only count messages within N hours")
+@click.option(
+    "--sync-first",
+    is_flag=True,
+    help="Refresh local cache before calculating top senders",
+)
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
 @click.option("-n", "--limit", default=20, help="Top N senders")
-def top(chat: str | None, hours: int | None, limit: int):
+@structured_output_options
+def top(
+    chat: str | None,
+    hours: int | None,
+    sync_first: bool,
+    sync_limit: int,
+    limit: int,
+    as_json: bool,
+    as_yaml: bool,
+):
     """Show most active senders."""
+    _maybe_sync_first(chat, sync_first, sync_limit)
+
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat) if chat else None
+        chat_id = resolve_chat_id_or_print(db, chat)
+        if chat and chat_id is None:
+            return
         results = db.top_senders(chat_id=chat_id, hours=hours, limit=limit)
+
+    if emit_structured(results, as_json=as_json, as_yaml=as_yaml):
+        return
 
     if not results:
         console.print("[yellow]No sender data found.[/yellow]")
@@ -112,11 +283,38 @@ def top(chat: str | None, hours: int | None, limit: int):
 @click.option("-c", "--chat", help="Filter by chat name")
 @click.option("--hours", type=int, help="Only show last N hours")
 @click.option("--by", "granularity", type=click.Choice(["day", "hour"]), default="day")
-def timeline(chat: str | None, hours: int | None, granularity: str):
+@click.option(
+    "--sync-first",
+    is_flag=True,
+    help="Refresh local cache before building the timeline",
+)
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
+@structured_output_options
+def timeline(
+    chat: str | None,
+    hours: int | None,
+    granularity: str,
+    sync_first: bool,
+    sync_limit: int,
+    as_json: bool,
+    as_yaml: bool,
+):
     """Show message activity over time as a bar chart."""
+    _maybe_sync_first(chat, sync_first, sync_limit)
+
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat) if chat else None
+        chat_id = resolve_chat_id_or_print(db, chat)
+        if chat and chat_id is None:
+            return
         results = db.timeline(chat_id=chat_id, hours=hours, granularity=granularity)
+
+    if emit_structured(results, as_json=as_json, as_yaml=as_yaml):
+        return
 
     if not results:
         console.print("[yellow]No timeline data.[/yellow]")
@@ -135,21 +333,45 @@ def timeline(chat: str | None, hours: int | None, granularity: str):
 
 @query_group.command("today")
 @click.option("-c", "--chat", help="Filter by chat name")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def today(chat: str | None, as_json: bool):
+@click.option(
+    "--sync-first",
+    is_flag=True,
+    help="Refresh local cache before reading today's messages",
+)
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
+@structured_output_options
+def today(chat: str | None, sync_first: bool, sync_limit: int, as_json: bool, as_yaml: bool):
     """Show today's messages, grouped by chat."""
-    import json
+    from datetime import datetime
+
+    _maybe_sync_first(chat, sync_first, sync_limit)
 
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat) if chat else None
+        chat_id = resolve_chat_id_or_print(db, chat)
+        if chat and chat_id is None:
+            return
         msgs = db.get_today(chat_id=chat_id)
+        latest_ts = db.get_latest_timestamp(chat_id=chat_id)
 
-    if as_json:
-        click.echo(json.dumps(msgs, ensure_ascii=False, indent=2, default=str))
+    if emit_structured(msgs, as_json=as_json, as_yaml=as_yaml):
         return
 
     if not msgs:
         console.print("[yellow]No messages today.[/yellow]")
+        if latest_ts:
+            latest_local = datetime.fromisoformat(latest_ts).astimezone()
+            console.print(
+                "[dim]Latest local message is from "
+                f"{latest_local.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
+                "Run 'tg refresh' to refresh.[/dim]"
+            )
+        else:
+            console.print("[dim]Local database is empty. Run 'tg refresh' first.[/dim]")
         return
 
     # Group by chat
@@ -172,8 +394,23 @@ def today(chat: str | None, as_json: bool):
 @click.argument("keywords")
 @click.option("-c", "--chat", help="Filter by chat name")
 @click.option("--hours", type=int, help="Only search last N hours (default: today)")
-@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
-def filter_msgs(keywords: str, chat: str | None, hours: int | None, as_json: bool):
+@click.option("--sync-first", is_flag=True, help="Refresh local cache before filtering")
+@click.option(
+    "--sync-limit",
+    default=5000,
+    show_default=True,
+    help="Max messages per chat when using --sync-first",
+)
+@structured_output_options
+def filter_msgs(
+    keywords: str,
+    chat: str | None,
+    hours: int | None,
+    sync_first: bool,
+    sync_limit: int,
+    as_json: bool,
+    as_yaml: bool,
+):
     """Filter messages by KEYWORDS (comma-separated, OR logic).
 
     Examples:
@@ -181,7 +418,6 @@ def filter_msgs(keywords: str, chat: str | None, hours: int | None, as_json: boo
         tg filter "招聘,remote,远程" --hours 48
         tg filter "Rust" --chat "牛油果" --json
     """
-    import json
     import re
 
     keyword_list = [k.strip() for k in keywords.split(",") if k.strip()]
@@ -189,8 +425,12 @@ def filter_msgs(keywords: str, chat: str | None, hours: int | None, as_json: boo
         console.print("[red]Please provide at least one keyword.[/red]")
         return
 
+    _maybe_sync_first(chat, sync_first, sync_limit)
+
     with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat) if chat else None
+        chat_id = resolve_chat_id_or_print(db, chat)
+        if chat and chat_id is None:
+            return
 
         if hours:
             msgs = db.get_recent(chat_id=chat_id, hours=hours, limit=100000)
@@ -205,8 +445,7 @@ def filter_msgs(keywords: str, chat: str | None, hours: int | None, as_json: boo
         console.print(f"[yellow]No messages matching: {', '.join(keyword_list)}[/yellow]")
         return
 
-    if as_json:
-        click.echo(json.dumps(matched, ensure_ascii=False, indent=2, default=str))
+    if emit_structured(matched, as_json=as_json, as_yaml=as_yaml):
         return
 
     # Group by chat

@@ -1,1 +1,1 @@
-"""tg-cli — Telegram CLI tool for monitoring chats and AI analysis."""
+"""tg-cli — Telegram CLI tool for syncing chats and local analysis."""

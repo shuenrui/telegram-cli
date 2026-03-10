@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger(__name__)
-
 from .config import get_db_path
+
+log = logging.getLogger(__name__)
 
 _CREATE_TABLE = """
 CREATE TABLE IF NOT EXISTS messages (
@@ -71,24 +72,39 @@ class MessageDB:
         self.close()
         return False
 
-    def resolve_chat_id(self, chat_str: str) -> int | None:
-        """Resolve a chat string (name or numeric ID) to a database chat_id."""
+    def find_chats(self, chat_str: str) -> list[dict]:
+        """Return chats matching a numeric ID, exact name, or partial name."""
         chats = self.get_chats()
 
-        # Try name match first
-        for c in chats:
-            if c["chat_name"] and chat_str.lower() in c["chat_name"].lower():
-                return c["chat_id"]
-
-        # Try numeric ID
         try:
             numeric_id = _canonical_chat_id(int(chat_str))
-            all_ids = {c["chat_id"] for c in chats}
-            if numeric_id in all_ids:
-                return numeric_id
-            return None
+            exact_id_matches = [c for c in chats if c["chat_id"] == numeric_id]
+            if exact_id_matches:
+                return exact_id_matches
         except ValueError:
-            return None
+            pass
+
+        exact_name_matches = [
+            c
+            for c in chats
+            if c["chat_name"] and c["chat_name"].casefold() == chat_str.casefold()
+        ]
+        if exact_name_matches:
+            return exact_name_matches
+
+        partial_matches = [
+            c
+            for c in chats
+            if c["chat_name"] and chat_str.casefold() in c["chat_name"].casefold()
+        ]
+        return partial_matches
+
+    def resolve_chat_id(self, chat_str: str) -> int | None:
+        """Resolve a chat string (name or numeric ID) to a unique database chat_id."""
+        matches = self.find_chats(chat_str)
+        if len(matches) == 1:
+            return matches[0]["chat_id"]
+        return None
 
     def insert_message(
         self,
@@ -107,7 +123,17 @@ class MessageDB:
         try:
             cursor = self.conn.execute(
                 """INSERT OR IGNORE INTO messages
-                   (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
+                   (
+                       platform,
+                       chat_id,
+                       chat_name,
+                       msg_id,
+                       sender_id,
+                       sender_name,
+                       content,
+                       timestamp,
+                       raw_json
+                   )
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     platform,
@@ -143,7 +169,11 @@ class MessageDB:
                 m.get("sender_id"),
                 m.get("sender_name"),
                 m.get("content"),
-                m["timestamp"].isoformat() if isinstance(m["timestamp"], datetime) else m["timestamp"],
+                (
+                    m["timestamp"].isoformat()
+                    if isinstance(m["timestamp"], datetime)
+                    else m["timestamp"]
+                ),
                 json.dumps(m["raw_json"], ensure_ascii=False) if m.get("raw_json") else None,
             )
             for m in messages
@@ -152,7 +182,17 @@ class MessageDB:
             before = self.conn.total_changes
             self.conn.executemany(
                 """INSERT OR IGNORE INTO messages
-                   (platform, chat_id, chat_name, msg_id, sender_id, sender_name, content, timestamp, raw_json)
+                   (
+                       platform,
+                       chat_id,
+                       chat_name,
+                       msg_id,
+                       sender_id,
+                       sender_name,
+                       content,
+                       timestamp,
+                       raw_json
+                   )
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 rows,
             )
@@ -166,6 +206,8 @@ class MessageDB:
         self,
         keyword: str,
         chat_id: int | None = None,
+        sender: str | None = None,
+        hours: int | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search messages by keyword."""
@@ -174,31 +216,79 @@ class MessageDB:
         if chat_id:
             query += " AND chat_id = ?"
             params.append(chat_id)
+        if sender:
+            query += " AND sender_name LIKE ?"
+            params.append(f"%{sender}%")
+        if hours:
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+            query += " AND timestamp >= ?"
+            params.append(cutoff)
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
         rows = self.conn.execute(query, params).fetchall()
         return [dict(r) for r in rows]
 
-    def get_recent(
+    def search_regex(
         self,
+        pattern: str,
         chat_id: int | None = None,
-        hours: int | None = 24,
-        limit: int = 500,
+        sender: str | None = None,
+        hours: int | None = None,
+        limit: int = 50,
     ) -> list[dict]:
-        """Get recent messages. If hours is None, return all messages."""
-        if hours is not None:
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-            query = "SELECT * FROM messages WHERE timestamp >= ?"
-            params: list[Any] = [cutoff]
-        else:
-            query = "SELECT * FROM messages WHERE 1=1"
-            params = []
+        """Search messages by regex pattern."""
+        regex = re.compile(pattern, re.IGNORECASE)
+        query = "SELECT * FROM messages WHERE content IS NOT NULL"
+        params: list[Any] = []
         if chat_id:
             query += " AND chat_id = ?"
             params.append(chat_id)
-        query += " ORDER BY timestamp ASC LIMIT ?"
-        params.append(limit)
+        if sender:
+            query += " AND sender_name LIKE ?"
+            params.append(f"%{sender}%")
+        if hours:
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+            query += " AND timestamp >= ?"
+            params.append(cutoff)
+        query += " ORDER BY timestamp DESC"
+
         rows = self.conn.execute(query, params).fetchall()
+        results: list[dict] = []
+        for row in rows:
+            msg = dict(row)
+            content = msg.get("content") or ""
+            if regex.search(content):
+                results.append(msg)
+                if len(results) >= limit:
+                    break
+        return results
+
+    def get_recent(
+        self,
+        chat_id: int | None = None,
+        sender: str | None = None,
+        hours: int | None = 24,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Get the latest messages, returned in chronological order."""
+        if hours is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+            base_query = "SELECT * FROM messages WHERE timestamp >= ?"
+            params: list[Any] = [cutoff]
+        else:
+            base_query = "SELECT * FROM messages WHERE 1=1"
+            params = []
+        if chat_id:
+            base_query += " AND chat_id = ?"
+            params.append(chat_id)
+        if sender:
+            base_query += " AND sender_name LIKE ?"
+            params.append(f"%{sender}%")
+        query = (
+            f"SELECT * FROM ({base_query} ORDER BY timestamp DESC LIMIT ?) "
+            "ORDER BY timestamp ASC"
+        )
+        rows = self.conn.execute(query, params + [limit]).fetchall()
         return [dict(r) for r in rows]
 
     def get_today(
@@ -220,7 +310,12 @@ class MessageDB:
         else:
             # Auto-detect system timezone
             local_tz = datetime.now().astimezone().tzinfo
-        today_local = now_utc.astimezone(local_tz).replace(hour=0, minute=0, second=0, microsecond=0)
+        today_local = now_utc.astimezone(local_tz).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
         cutoff_utc = today_local.astimezone(timezone.utc).isoformat()
 
         query = "SELECT * FROM messages WHERE timestamp >= ?"
@@ -260,6 +355,16 @@ class MessageDB:
             row = self.conn.execute("SELECT COUNT(*) FROM messages").fetchone()
         return row[0]
 
+    def get_latest_timestamp(self, chat_id: int | None = None) -> str | None:
+        """Return the latest stored message timestamp for a chat or the whole DB."""
+        if chat_id:
+            row = self.conn.execute(
+                "SELECT MAX(timestamp) FROM messages WHERE chat_id = ?", (chat_id,)
+            ).fetchone()
+        else:
+            row = self.conn.execute("SELECT MAX(timestamp) FROM messages").fetchone()
+        return row[0] if row and row[0] is not None else None
+
     def delete_chat(self, chat_id: int) -> int:
         """Delete all messages for a chat. Returns number of deleted rows."""
         cursor = self.conn.execute(
@@ -275,7 +380,7 @@ class MessageDB:
         limit: int = 20,
     ) -> list[dict]:
         """Get most active senders ranked by message count."""
-        conditions = ["sender_name IS NOT NULL"]
+        conditions = ["(sender_id IS NOT NULL OR sender_name IS NOT NULL)"]
         params: list[Any] = []
         if chat_id:
             conditions.append("chat_id = ?")
@@ -287,10 +392,10 @@ class MessageDB:
 
         where = " AND ".join(conditions)
         rows = self.conn.execute(
-            f"""SELECT sender_name, sender_id, COUNT(*) as msg_count,
+            f"""SELECT MAX(sender_name) as sender_name, sender_id, COUNT(*) as msg_count,
                        MIN(timestamp) as first_msg, MAX(timestamp) as last_msg
                 FROM messages WHERE {where}
-                GROUP BY sender_name
+                GROUP BY COALESCE(CAST(sender_id AS TEXT), 'name:' || COALESCE(sender_name, ''))
                 ORDER BY msg_count DESC
                 LIMIT ?""",
             params + [limit],

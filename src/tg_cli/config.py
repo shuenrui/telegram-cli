@@ -48,20 +48,28 @@ _load_env()
 
 APP_NAME = "tg-cli"
 
-# Built-in default Telegram API credentials.
-# These identify the *application*, not the user. Security comes from
-# phone-number + verification-code login. Users can override via env vars.
-_DEFAULT_API_ID = 37080980
-_DEFAULT_API_HASH = "955d62bc5a309c6ddd20f9fe9a93a8ba"
+_API_SETUP_HELP = (
+    "Missing Telegram app credentials. Set TG_API_ID and TG_API_HASH in your environment "
+    "or .env file. You can create them at https://my.telegram.org/apps"
+)
+
+
+class MissingTelegramCredentialsError(RuntimeError):
+    """Raised when TG_API_ID or TG_API_HASH is not configured."""
 
 
 def get_api_id() -> int:
     val = os.environ.get("TG_API_ID", "")
-    return int(val) if val else _DEFAULT_API_ID
+    if not val:
+        raise MissingTelegramCredentialsError(_API_SETUP_HELP)
+    return int(val)
 
 
 def get_api_hash() -> str:
-    return os.environ.get("TG_API_HASH", "") or _DEFAULT_API_HASH
+    val = os.environ.get("TG_API_HASH", "")
+    if not val:
+        raise MissingTelegramCredentialsError(_API_SETUP_HELP)
+    return val
 
 
 def get_session_name() -> str:
