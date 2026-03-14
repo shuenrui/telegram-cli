@@ -173,7 +173,19 @@ tg recent --hours 24 --sync-first --yaml
 tg search "keyword" --chat "GroupName" --sync-first --yaml
 ```
 
-### Claude Code / Antigravity
+### [Skills CLI](https://github.com/vercel-labs/skills) (Recommended)
+
+```bash
+npx skills add jackwener/tg-cli
+```
+
+| Flag | Description |
+| --- | --- |
+| `-g` | Install globally (user-level, shared across projects) |
+| `-a claude-code` | Target a specific agent |
+| `-y` | Non-interactive mode |
+
+### Manual Install
 
 ```bash
 mkdir -p .agents/skills
@@ -376,7 +388,19 @@ tg recent --hours 24 --sync-first --yaml
 tg search "keyword" --chat "GroupName" --sync-first --yaml
 ```
 
-### Claude Code / Antigravity
+### [Skills CLI](https://github.com/vercel-labs/skills)（推荐）
+
+```bash
+npx skills add jackwener/tg-cli
+```
+
+| 参数 | 说明 |
+| --- | --- |
+| `-g` | 全局安装（用户级别，跨项目共享） |
+| `-a claude-code` | 指定目标 Agent |
+| `-y` | 非交互模式 |
+
+### 手动安装
 
 ```bash
 mkdir -p .agents/skills
