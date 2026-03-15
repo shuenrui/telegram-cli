@@ -1,7 +1,6 @@
 """Tests for config module."""
 
 
-
 class TestConfig:
     def test_get_api_id(self, monkeypatch):
         monkeypatch.setenv("TG_API_ID", "12345")

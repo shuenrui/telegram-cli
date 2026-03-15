@@ -85,17 +85,13 @@ class MessageDB:
             pass
 
         exact_name_matches = [
-            c
-            for c in chats
-            if c["chat_name"] and c["chat_name"].casefold() == chat_str.casefold()
+            c for c in chats if c["chat_name"] and c["chat_name"].casefold() == chat_str.casefold()
         ]
         if exact_name_matches:
             return exact_name_matches
 
         partial_matches = [
-            c
-            for c in chats
-            if c["chat_name"] and chat_str.casefold() in c["chat_name"].casefold()
+            c for c in chats if c["chat_name"] and chat_str.casefold() in c["chat_name"].casefold()
         ]
         return partial_matches
 
@@ -286,8 +282,7 @@ class MessageDB:
             base_query += " AND sender_name LIKE ?"
             params.append(f"%{sender}%")
         query = (
-            f"SELECT * FROM ({base_query} ORDER BY timestamp DESC LIMIT ?) "
-            "ORDER BY timestamp ASC"
+            f"SELECT * FROM ({base_query} ORDER BY timestamp DESC LIMIT ?) ORDER BY timestamp ASC"
         )
         rows = self.conn.execute(query, params + [limit]).fetchall()
         return [dict(r) for r in rows]
@@ -368,9 +363,7 @@ class MessageDB:
 
     def delete_chat(self, chat_id: int) -> int:
         """Delete all messages for a chat. Returns number of deleted rows."""
-        cursor = self.conn.execute(
-            "DELETE FROM messages WHERE chat_id = ?", (chat_id,)
-        )
+        cursor = self.conn.execute("DELETE FROM messages WHERE chat_id = ?", (chat_id,))
         self.conn.commit()
         return cursor.rowcount
 

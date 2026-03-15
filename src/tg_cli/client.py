@@ -119,9 +119,7 @@ async def get_chat_info(client: TelegramClient, chat: str | int) -> dict | None:
         return None
 
     info: dict[str, str] = {}
-    info["Title"] = (
-        getattr(entity, "title", None) or getattr(entity, "first_name", "") or str(chat)
-    )
+    info["Title"] = getattr(entity, "title", None) or getattr(entity, "first_name", "") or str(chat)
     info["ID"] = str(entity.id)
 
     if isinstance(entity, User):
@@ -237,9 +235,7 @@ async def fetch_history(
 
         return inserted_count
     except FloodWaitError as e:
-        console.print(
-            f"[yellow]⚠ Telegram rate limit hit, waiting {e.seconds}s...[/yellow]"
-        )
+        console.print(f"[yellow]⚠ Telegram rate limit hit, waiting {e.seconds}s...[/yellow]")
         await asyncio.sleep(e.seconds + random.uniform(1, 3))
         return 0
     finally:

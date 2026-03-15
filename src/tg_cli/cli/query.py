@@ -104,8 +104,7 @@ def search(
         chat_name = msg.get("chat_name") or ""
         content = (msg.get("content") or "")[:200]
         console.print(
-            f"[dim]{ts}[/dim] [cyan]{chat_name}[/cyan] | "
-            f"[bold]{sender}[/bold]: {content}"
+            f"[dim]{ts}[/dim] [cyan]{chat_name}[/cyan] | [bold]{sender}[/bold]: {content}"
         )
 
     filters = []
@@ -173,8 +172,7 @@ def recent(
         chat_name = msg.get("chat_name") or ""
         content = (msg.get("content") or "")[:200].replace("\n", " ")
         console.print(
-            f"[dim]{ts}[/dim] [cyan]{chat_name}[/cyan] | "
-            f"[bold]{sender_name}[/bold]: {content}"
+            f"[dim]{ts}[/dim] [cyan]{chat_name}[/cyan] | [bold]{sender_name}[/bold]: {content}"
         )
 
     filters = [f"hours={hours}"]

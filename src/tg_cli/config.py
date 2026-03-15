@@ -53,7 +53,6 @@ _DEFAULT_API_ID = 2040
 _DEFAULT_API_HASH = "b18441a1ff607e10a989891a5462e627"
 
 
-
 def get_api_id() -> int:
     val = os.environ.get("TG_API_ID", "")
     if val:

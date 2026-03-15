@@ -536,7 +536,7 @@ class TestSend:
             id = 42
 
         class FakeClient:
-            async def send_message(self, chat, message, reply_to=None):
+            async def send_message(self, chat, message, reply_to=None, **kwargs):
                 assert chat == "TestChat"
                 assert message == "Hello!"
                 assert reply_to is None
@@ -559,7 +559,7 @@ class TestSend:
             id = 99
 
         class FakeClient:
-            async def send_message(self, chat, message, reply_to=None):
+            async def send_message(self, chat, message, reply_to=None, **kwargs):
                 assert reply_to == 12345
                 return FakeMsg()
 
@@ -578,7 +578,7 @@ class TestSend:
             id = 77
 
         class FakeClient:
-            async def send_message(self, chat, message, reply_to=None):
+            async def send_message(self, chat, message, reply_to=None, **kwargs):
                 return FakeMsg()
 
         @asynccontextmanager
@@ -600,7 +600,7 @@ class TestSend:
             id = 88
 
         class FakeClient:
-            async def send_message(self, chat, message, reply_to=None):
+            async def send_message(self, chat, message, reply_to=None, **kwargs):
                 return FakeMsg()
 
         @asynccontextmanager
@@ -620,7 +620,7 @@ class TestSend:
             id = 55
 
         class FakeClient:
-            async def send_message(self, chat, message, reply_to=None):
+            async def send_message(self, chat, message, reply_to=None, **kwargs):
                 assert chat == 12345  # Should be parsed as int
                 return FakeMsg()
 
@@ -749,4 +749,3 @@ class TestInfo:
         result = runner.invoke(cli, ["info", "Missing"])
         assert result.exit_code == 0
         assert "Could not find chat" in result.output
-

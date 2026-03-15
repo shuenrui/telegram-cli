@@ -29,6 +29,7 @@ def populated_db(tmp_path, monkeypatch):
     monkeypatch.setenv("DB_PATH", str(db_path))
 
     import tg_cli.config as config_mod
+
     monkeypatch.setattr(config_mod, "_PROJECT_ROOT", tmp_path)
 
     db = MessageDB(db_path=db_path)

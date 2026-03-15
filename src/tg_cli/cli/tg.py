@@ -399,15 +399,22 @@ def tg_status(as_json: bool, as_yaml: bool):
 @click.option("--no-preview", is_flag=True, help="Disable link preview")
 @structured_output_options
 def tg_send(
-    chat: str, message: str, reply: int | None,
-    no_preview: bool, as_json: bool, as_yaml: bool,
+    chat: str,
+    message: str,
+    reply: int | None,
+    no_preview: bool,
+    as_json: bool,
+    as_yaml: bool,
 ):
     """Send a MESSAGE to CHAT (name, username, or numeric ID)."""
 
     async def _run():
         async with connect() as client:
             msg = await client.send_message(
-                _parse_chat(chat), message, reply_to=reply, link_preview=not no_preview,
+                _parse_chat(chat),
+                message,
+                reply_to=reply,
+                link_preview=not no_preview,
             )
             return msg
 
@@ -430,20 +437,13 @@ def tg_edit(chat: str, msg_id: int, new_text: str, no_preview: bool, as_json: bo
     """Edit a previously sent message. CHAT MSG_ID NEW_TEXT."""
 
     async def _run():
-        from telethon.tl.functions.messages import EditMessageRequest
-
-        kwargs = {}
-        if no_preview:
-            kwargs["no_webpage"] = True
-
         async with connect() as client:
-            entity = await client.get_input_entity(_parse_chat(chat))
-            await client(EditMessageRequest(
-                peer=entity,
-                id=msg_id,
-                message=new_text,
-                **kwargs,
-            ))
+            return await client.edit_message(
+                _parse_chat(chat),
+                msg_id,
+                new_text,
+                link_preview=not no_preview,
+            )
 
     asyncio.run(_run())
     payload = {"edited": True, "msg_id": msg_id, "chat": chat}
@@ -461,8 +461,7 @@ def tg_delete(chat: str, msg_ids: tuple[int, ...], as_json: bool, as_yaml: bool)
 
     async def _run():
         async with connect() as client:
-            entity = await client.get_entity(_parse_chat(chat))
-            await client.delete_messages(entity, list(msg_ids))
+            await client.delete_messages(_parse_chat(chat), list(msg_ids))
 
     asyncio.run(_run())
     payload = {"deleted": True, "msg_ids": list(msg_ids), "chat": chat}
