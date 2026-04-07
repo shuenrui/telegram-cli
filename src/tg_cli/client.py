@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import platform
 import random
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -24,10 +25,17 @@ from .db import MessageDB
 
 log = logging.getLogger(__name__)
 
-# Telegram Desktop 5.x fingerprint — makes the session look like a real client
-_DEVICE_MODEL = "Desktop"
-_SYSTEM_VERSION = "macOS 15.3"
-_APP_VERSION = "5.12.1"
+# Auto-detected device fingerprint — honest values avoid Telegram anti-fraud mismatch
+try:
+    from importlib.metadata import PackageNotFoundError as _PNFError
+    from importlib.metadata import version as _pkg_version
+
+    _APP_VERSION = _pkg_version("kabi-tg-cli")
+except Exception:
+    _APP_VERSION = "0.6.0"
+
+_DEVICE_MODEL = platform.machine() or "Unknown"
+_SYSTEM_VERSION = f"{platform.system()} {platform.release()}"
 _LANG_CODE = "en"
 _SYSTEM_LANG_CODE = "en-US"
 
