@@ -8,6 +8,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ..client import connect, fetch_history, get_chat_info, list_chats, listen
+from ..config import get_send_allowlist
 from ..console import console
 from ..db import MessageDB
 from ._chat import _parse_chat, resolve_chat_id_or_print
@@ -409,9 +410,20 @@ def tg_send(
     """Send a MESSAGE to CHAT (name, username, or numeric ID)."""
 
     async def _run():
+        allowlist = get_send_allowlist()
         async with connect() as client:
+            target = _parse_chat(chat)
+            if allowlist is not None:
+                entity = await client.get_entity(target)
+                if entity.id not in allowlist:
+                    raise click.ClickException(
+                        f"Chat {chat!r} (id: {entity.id}) is not in TG_SEND_ALLOWLIST.\n"
+                        "  Add its numeric ID to TG_SEND_ALLOWLIST (comma-separated) "
+                        "to permit sending."
+                    )
+                target = entity  # reuse resolved entity
             msg = await client.send_message(
-                _parse_chat(chat),
+                target,
                 message,
                 reply_to=reply,
                 link_preview=not no_preview,

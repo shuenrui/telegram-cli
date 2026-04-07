@@ -108,6 +108,24 @@ def get_data_dir() -> Path:
     return d
 
 
+def get_send_allowlist() -> list[int] | None:
+    """Return allowed chat IDs for send, or None if unrestricted.
+
+    Set TG_SEND_ALLOWLIST to a comma-separated list of numeric chat IDs.
+    When set, tg send will refuse to post to any chat not in this list.
+    Leave unset to allow sending to any chat (backward-compatible default).
+    """
+    raw = os.environ.get("TG_SEND_ALLOWLIST", "").strip()
+    if not raw:
+        return None
+    ids = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part:
+            ids.append(int(part))
+    return ids
+
+
 def get_db_path() -> Path:
     raw = os.environ.get("DB_PATH", "")
     if raw:
