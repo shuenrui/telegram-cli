@@ -17,7 +17,7 @@ from .config import (
     get_api_hash,
     get_api_id,
     get_session_path,
-    is_default_api_id,
+    secure_file,
 )
 from .console import console
 from .db import MessageDB
@@ -45,26 +45,15 @@ def _get_sender_name(sender: User | Channel | Chat | None) -> str | None:
     return getattr(sender, "title", None) or str(sender.id)
 
 
-_default_api_warned = False
-
-
 @asynccontextmanager
 async def connect() -> AsyncGenerator[TelegramClient, None]:
     """Async context manager for Telegram client — single connection, reuse within scope."""
-    global _default_api_warned
     api_id = get_api_id()
     api_hash = get_api_hash()
-
-    if not _default_api_warned and is_default_api_id():
-        _default_api_warned = True
-        console.print(
-            "[yellow]⚠ Using default Telegram Desktop API credentials (api_id=2040).\n"
-            "  This increases the risk of account restrictions.\n"
-            "  Get your own at https://my.telegram.org and set TG_API_ID / TG_API_HASH.[/yellow]"
-        )
+    session_path = get_session_path()
 
     c = TelegramClient(
-        get_session_path(),
+        session_path,
         api_id,
         api_hash,
         device_model=_DEVICE_MODEL,
@@ -74,6 +63,8 @@ async def connect() -> AsyncGenerator[TelegramClient, None]:
         system_lang_code=_SYSTEM_LANG_CODE,
     )
     await c.start()
+    # Lock down session file after Telethon creates it
+    secure_file(f"{session_path}.session")
     try:
         yield c
     finally:

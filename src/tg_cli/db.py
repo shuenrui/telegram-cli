@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .config import get_db_path
+from .config import get_db_path, secure_file
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ class MessageDB:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(_CREATE_TABLE + _CREATE_INDEX)
+        secure_file(self.db_path)
 
     def __enter__(self):
         return self
