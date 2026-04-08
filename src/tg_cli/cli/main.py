@@ -1,6 +1,7 @@
 """tg-cli — Telegram CLI entry point."""
 
 import logging
+import os
 import sys
 
 import click
@@ -17,6 +18,25 @@ def _setup_logging(verbose: bool):
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
         datefmt="%H:%M:%S",
     )
+
+
+def _apply_account(account: str) -> None:
+    """Scope DATA_DIR to an account subdirectory.
+
+    account='default' leaves DATA_DIR unchanged so existing data is
+    preserved (backward-compatible). Any other name redirects all data
+    (session, messages.db, audit.db, ratelimit.db) to
+    <base_data_dir>/accounts/<account>.
+    """
+    if account == "default":
+        return
+    # Import here to avoid circular import at module level
+    from ..config import get_data_dir
+
+    base = get_data_dir()
+    account_dir = base / "accounts" / account
+    account_dir.mkdir(parents=True, exist_ok=True)
+    os.environ["DATA_DIR"] = str(account_dir)
 
 
 class _AuditGroup(click.Group):
@@ -38,9 +58,16 @@ class _AuditGroup(click.Group):
 @click.group(cls=_AuditGroup)
 @click.version_option(package_name="kabi-tg-cli")
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging")
-def cli(verbose: bool):
+@click.option(
+    "--account",
+    default="default",
+    show_default=True,
+    help="Account name. Each account gets its own isolated data directory.",
+)
+def cli(verbose: bool, account: str):
     """tg — Telegram CLI for syncing chats, searching messages, and local analysis."""
     _setup_logging(verbose)
+    _apply_account(account)
 
 
 # Register ALL commands at top-level (flat structure, no `tg tg` nonsense)
