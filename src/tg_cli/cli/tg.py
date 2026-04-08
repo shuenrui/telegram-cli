@@ -8,7 +8,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from ..client import connect, fetch_history, get_chat_info, list_chats, listen
-from ..config import get_send_allowlist
+from ..config import get_mode, get_send_allowlist
 from ..console import console
 from ..db import MessageDB
 from ._chat import _parse_chat, resolve_chat_id_or_print
@@ -21,6 +21,18 @@ from ._output import (
     success_payload,
 )
 from ._sync import sync_all_dialogs, sync_chat_dialog
+
+
+_READWRITE_HINT = (
+    "This command is disabled in readonly mode.\n"
+    "  Set TG_MODE=readwrite in your environment to enable send/edit/delete."
+)
+
+
+def _require_readwrite() -> None:
+    """Raise ClickException if the current mode is not readwrite."""
+    if get_mode() != "readwrite":
+        raise click.ClickException(_READWRITE_HINT)
 
 
 def _telegram_user_payload(me) -> dict[str, str | int]:
@@ -408,6 +420,7 @@ def tg_send(
     as_yaml: bool,
 ):
     """Send a MESSAGE to CHAT (name, username, or numeric ID)."""
+    _require_readwrite()
 
     async def _run():
         allowlist = get_send_allowlist()
@@ -447,6 +460,7 @@ def tg_send(
 @structured_output_options
 def tg_edit(chat: str, msg_id: int, new_text: str, no_preview: bool, as_json: bool, as_yaml: bool):
     """Edit a previously sent message. CHAT MSG_ID NEW_TEXT."""
+    _require_readwrite()
 
     async def _run():
         async with connect() as client:
@@ -470,6 +484,7 @@ def tg_edit(chat: str, msg_id: int, new_text: str, no_preview: bool, as_json: bo
 @structured_output_options
 def tg_delete(chat: str, msg_ids: tuple[int, ...], as_json: bool, as_yaml: bool):
     """Delete one or more messages. CHAT MSG_ID [MSG_ID ...]."""
+    _require_readwrite()
 
     async def _run():
         async with connect() as client:

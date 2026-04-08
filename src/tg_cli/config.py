@@ -126,6 +126,15 @@ def get_send_allowlist() -> list[int] | None:
     return ids
 
 
+def get_mode() -> str:
+    """Return the operational mode: 'readonly' (default) or 'readwrite'.
+
+    Set TG_MODE=readwrite to enable send/edit/delete commands.
+    Any other value (or unset) defaults to readonly for safety.
+    """
+    return os.environ.get("TG_MODE", "readonly").strip().lower()
+
+
 def get_db_path() -> Path:
     raw = os.environ.get("DB_PATH", "")
     if raw:
