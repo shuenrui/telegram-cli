@@ -1,6 +1,6 @@
 # tg-cli
 
-[![CI](https://github.com/jackwener/tg-cli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jackwener/tg-cli/actions/workflows/ci.yml)
+[![CI](https://github.com/shuenrui/telegram-cli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shuenrui/telegram-cli/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/kabi_tg_cli)](https://pypi.org/project/kabi-tg-cli/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
@@ -56,14 +56,14 @@ uv tool upgrade kabi-tg-cli
 Install from GitHub:
 
 ```bash
-uv tool install git+https://github.com/jackwener/tg-cli.git
+uv tool install git+https://github.com/shuenrui/telegram-cli.git
 ```
 
 Install from source:
 
 ```bash
-git clone git@github.com:jackwener/tg-cli.git
-cd tg-cli
+git clone git@github.com:shuenrui/telegram-cli.git
+cd telegram-cli
 uv sync --extra dev
 ```
 
@@ -131,14 +131,14 @@ If you do not want to run `tg refresh` manually, use a scheduler.
 
 ### cron
 
-See [examples/tg-refresh.cron](https://github.com/jackwener/tg-cli/blob/main/examples/tg-refresh.cron).
+See [examples/tg-refresh.cron](https://github.com/shuenrui/telegram-cli/blob/main/examples/tg-refresh.cron).
 
 ### systemd user timer
 
 See:
 
-- [tg-refresh.service](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.service)
-- [tg-refresh.timer](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.timer)
+- [tg-refresh.service](https://github.com/shuenrui/telegram-cli/blob/main/examples/systemd/tg-refresh.service)
+- [tg-refresh.timer](https://github.com/shuenrui/telegram-cli/blob/main/examples/systemd/tg-refresh.timer)
 
 Typical flow:
 
@@ -176,7 +176,7 @@ tg search "keyword" --chat "GroupName" --sync-first --yaml
 ### [Skills CLI](https://github.com/vercel-labs/skills) (Recommended)
 
 ```bash
-npx skills add jackwener/tg-cli
+npx skills add shuenrui/telegram-cli
 ```
 
 | Flag | Description |
@@ -189,7 +189,7 @@ npx skills add jackwener/tg-cli
 
 ```bash
 mkdir -p .agents/skills
-git clone git@github.com:jackwener/tg-cli.git .agents/skills/tg-cli
+git clone git@github.com:shuenrui/telegram-cli.git .agents/skills/tg-cli
 ```
 
 ### ~~OpenClaw / ClawHub~~ (Deprecated)
@@ -265,14 +265,14 @@ uv tool upgrade kabi-tg-cli
 从 GitHub 安装：
 
 ```bash
-uv tool install git+https://github.com/jackwener/tg-cli.git
+uv tool install git+https://github.com/shuenrui/telegram-cli.git
 ```
 
 从源码安装：
 
 ```bash
-git clone git@github.com:jackwener/tg-cli.git
-cd tg-cli
+git clone git@github.com:shuenrui/telegram-cli.git
+cd telegram-cli
 uv sync --extra dev
 ```
 
@@ -344,14 +344,14 @@ tg send "群名" "Hello!"
 
 ### cron
 
-参考 [examples/tg-refresh.cron](https://github.com/jackwener/tg-cli/blob/main/examples/tg-refresh.cron)。
+参考 [examples/tg-refresh.cron](https://github.com/shuenrui/telegram-cli/blob/main/examples/tg-refresh.cron)。
 
 ### systemd user timer
 
 参考：
 
-- [tg-refresh.service](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.service)
-- [tg-refresh.timer](https://github.com/jackwener/tg-cli/blob/main/examples/systemd/tg-refresh.timer)
+- [tg-refresh.service](https://github.com/shuenrui/telegram-cli/blob/main/examples/systemd/tg-refresh.service)
+- [tg-refresh.timer](https://github.com/shuenrui/telegram-cli/blob/main/examples/systemd/tg-refresh.timer)
 
 典型流程：
 
@@ -389,7 +389,7 @@ tg search "keyword" --chat "GroupName" --sync-first --yaml
 ### [Skills CLI](https://github.com/vercel-labs/skills)（推荐）
 
 ```bash
-npx skills add jackwener/tg-cli
+npx skills add shuenrui/telegram-cli
 ```
 
 | 参数 | 说明 |
@@ -402,7 +402,7 @@ npx skills add jackwener/tg-cli
 
 ```bash
 mkdir -p .agents/skills
-git clone git@github.com:jackwener/tg-cli.git .agents/skills/tg-cli
+git clone git@github.com:shuenrui/telegram-cli.git .agents/skills/tg-cli
 ```
 
 ### ~~OpenClaw / ClawHub~~（已过时）
