@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from ..client import connect, fetch_history, sync_all
 from ..db import MessageDB
+from ..ratelimit import rate_check
 from ._chat import _parse_chat
 
 
@@ -17,16 +18,19 @@ async def sync_all_dialogs(
     max_chats: int | None = None,
 ) -> dict[str, int]:
     """Sync all dialogs available to the current Telegram account."""
-    with MessageDB() as db:
-        async with connect() as client:
-            return await sync_all(
-                client,
-                db,
-                limit_per_chat=limit,
-                on_chat_done=on_chat_done,
-                delay=delay,
-                max_chats=max_chats,
-            )
+    with rate_check("sync-all") as rc:
+        if not rc.allowed:
+            return {}
+        with MessageDB() as db:
+            async with connect() as client:
+                return await sync_all(
+                    client,
+                    db,
+                    limit_per_chat=limit,
+                    on_chat_done=on_chat_done,
+                    delay=delay,
+                    max_chats=max_chats,
+                )
 
 
 async def sync_chat_dialog(
@@ -36,15 +40,18 @@ async def sync_chat_dialog(
     on_progress: Callable[[int], None] | None = None,
 ) -> int:
     """Sync a single chat into the local database."""
-    with MessageDB() as db:
-        chat_id = db.resolve_chat_id(chat)
-        last_id = db.get_last_msg_id(chat_id) if chat_id else 0
-        async with connect() as client:
-            return await fetch_history(
-                client,
-                _parse_chat(chat),
-                limit=limit,
-                db=db,
-                on_progress=on_progress,
-                min_id=last_id or 0,
-            )
+    with rate_check("sync") as rc:
+        if not rc.allowed:
+            return 0
+        with MessageDB() as db:
+            chat_id = db.resolve_chat_id(chat)
+            last_id = db.get_last_msg_id(chat_id) if chat_id else 0
+            async with connect() as client:
+                return await fetch_history(
+                    client,
+                    _parse_chat(chat),
+                    limit=limit,
+                    db=db,
+                    on_progress=on_progress,
+                    min_id=last_id or 0,
+                )

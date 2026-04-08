@@ -9,6 +9,7 @@ from rich.table import Table
 
 from ..client import connect, fetch_history, get_chat_info, list_chats, listen
 from ..config import get_mode, get_send_allowlist
+from ..ratelimit import rate_check
 from ..console import console
 from ..db import MessageDB
 from ._chat import _parse_chat, resolve_chat_id_or_print
@@ -423,6 +424,9 @@ def tg_send(
     _require_readwrite()
 
     async def _run():
+        with rate_check("send") as rc:
+            if not rc.allowed:
+                raise click.ClickException("Rate budget exhausted — send blocked.")
         allowlist = get_send_allowlist()
         async with connect() as client:
             target = _parse_chat(chat)
