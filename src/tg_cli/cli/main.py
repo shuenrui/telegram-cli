@@ -1,6 +1,7 @@
 """tg-cli — Telegram CLI entry point."""
 
 import logging
+import sys
 
 import click
 
@@ -18,7 +19,23 @@ def _setup_logging(verbose: bool):
     )
 
 
-@click.group()
+class _AuditGroup(click.Group):
+    """click.Group subclass that audit-logs every subcommand invocation."""
+
+    def invoke(self, ctx: click.Context) -> object:
+        # protected_args[0] is the subcommand name after group options are parsed
+        subcmd = ctx.protected_args[0] if ctx.protected_args else None
+        if subcmd:
+            try:
+                from ..audit import log_command
+
+                log_command(subcmd, sys.argv[1:])
+            except Exception:
+                pass  # audit must never break the CLI
+        return super().invoke(ctx)
+
+
+@click.group(cls=_AuditGroup)
 @click.version_option(package_name="kabi-tg-cli")
 @click.option("-v", "--verbose", is_flag=True, help="Enable debug logging")
 def cli(verbose: bool):
